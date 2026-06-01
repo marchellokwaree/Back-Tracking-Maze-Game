@@ -13,6 +13,7 @@ import javax.imageio.ImageIO;
 
 import Main.GamePanel;
 import Main.KeyHandler;
+import Backtrack.BacktrackInstantSolved;
 
 public class Player extends Entity {
     GamePanel gp;
@@ -21,9 +22,9 @@ public class Player extends Entity {
     BufferedImage bufferedImage;
     public Darah darah;
     // Variabel Animasi
-    int spriteCounter = 0;
-    int spriteNum = 1;
-    boolean hadapKiri = false;
+    public int spriteCounter = 0;
+    public int spriteNum = 1;
+    public boolean hadapKiri = false;
     public int HP = 100;
     public int maxHP = 100;
     public int damageCooldown = 0;
@@ -41,7 +42,7 @@ public class Player extends Entity {
 
     // Constructor disesuaikan dengan GamePanel kamu (5 parameter)
     public Player(GamePanel gp, KeyHandler keyH, Image playerImg, int x, int y) {
-        super(x, y, 3); // speed 2
+        super(x, y, 2); // speed 2
         this.gp = gp;
         this.keyH = keyH;
         this.currentImage = playerImg;
@@ -88,87 +89,112 @@ public class Player extends Entity {
         updateEffects();
         int nextX = x;
         int nextY = y;
-           // --- KAMERA CLAMPING (Mencegah kamera keluar map) ---
+        boolean moving = false;
+
+        // --- KAMERA CLAMPING ---
         screenX = defaultScreenX;
         screenY = defaultScreenY;
 
-        // Batas Kiri
         if (x < defaultScreenX) {
             screenX = x;
-        }
-        // Batas Kanan
-        else if (x > gp.worldWidth - (gp.screenWidth - defaultScreenX)) {
+        } else if (x > gp.worldWidth - (gp.screenWidth - defaultScreenX)) {
             screenX = gp.screenWidth - (gp.worldWidth - x);
         }
 
-            // Batas Atas
         if (y < defaultScreenY) {
             screenY = y;
-        }
-        // Batas Bawah
-        else if (y > gp.worldHeight - (gp.screenHeight - defaultScreenY)) {
+        } else if (y > gp.worldHeight - (gp.screenHeight - defaultScreenY)) {
             screenY = gp.screenHeight - (gp.worldHeight - y);
         }
-        boolean moving = false;
 
-        // Cek Input dan tentukan gambar (Bisa dikembangkan per arah jika ada asetnya)
-        if (keyH.upPressed || keyH.downPressed || keyH.leftPressed || keyH.rightPressed) {
-            moving = true;
-            if (keyH.upPressed)
-                nextY -= speed;
-            if (keyH.downPressed)
-                nextY += speed;
-            if (keyH.leftPressed) {
+        // --- MOVEMENT LOGIC (AUTO VS MANUAL) ---
+        if (gp.autoSolveActive && gp.autoPath != null && gp.currentPathIndex < gp.autoPath.size()) {
+            
+            // AUTOSOLVE MOVEMENT
+            BacktrackInstantSolved.Point targetNode = gp.autoPath.get(gp.currentPathIndex);
+            int targetPixelX = targetNode.y * gp.getTileSize(); 
+            int targetPixelY = targetNode.x * gp.getTileSize(); 
 
-                nextX -= speed;
-                hadapKiri = true;
-            }
-            if (keyH.rightPressed) {
-                nextX += speed;
+            int autoSpeed = speed; // Auto-solve speed
+
+            if (x < targetPixelX) {
+                nextX += autoSpeed;
                 hadapKiri = false;
+                moving = true;
+                if (nextX > targetPixelX) nextX = targetPixelX;
+            } else if (x > targetPixelX) {
+                nextX -= autoSpeed;
+                hadapKiri = true;
+                moving = true;
+                if (nextX < targetPixelX) nextX = targetPixelX;
             }
-                
 
-                
+            if (y < targetPixelY) {
+                nextY += autoSpeed;
+                moving = true;
+                if (nextY > targetPixelY) nextY = targetPixelY;
+            } else if (y > targetPixelY) {
+                nextY -= autoSpeed;
+                moving = true;
+                if (nextY < targetPixelY) nextY = targetPixelY;
+            }
+
+            if (x == targetPixelX && y == targetPixelY) {
+                gp.currentPathIndex++;
+            }
+
+            // Ghost through walls during auto-solve
+            x = nextX;
+            y = nextY;
+
+        } else {
+            
+            // MANUAL MOVEMENT (KEY HANDLER)
+            if (keyH.upPressed || keyH.downPressed || keyH.leftPressed || keyH.rightPressed) {
+                moving = true;
+                if (keyH.upPressed) nextY -= speed;
+                if (keyH.downPressed) nextY += speed;
+                if (keyH.leftPressed) {
+                    nextX -= speed;
+                    hadapKiri = true;
+                }
+                if (keyH.rightPressed) {
+                    nextX += speed;
+                    hadapKiri = false;
+                }
+            }
+
+            // Collision Check (Only during manual play)
+            if (!gp.collidesWithWall(nextX, y , this.hitbox) && !gp.collidesWithClosedGate(nextX, y , this.hitbox)) {
+                x = nextX;
+            }
+            if (!gp.collidesWithWall(x, nextY , this.hitbox) && !gp.collidesWithClosedGate(x, nextY , this.hitbox)) {
+                y = nextY;
+            }
         }
 
-        // LOGIKA ANIMASI: Berganti antara spriteNum 1 dan 2 saat bergerak
+        // --- ANIMATION LOGIC ---
         if (moving) {
             spriteCounter++;
-            if (spriteCounter > 12) { // Kecepatan ganti kaki
-                if (spriteNum == 1) {
-                    spriteNum = 2;
-                } else if (spriteNum == 2) {
-                    spriteNum = 3;
-                } else if (spriteNum == 3) {
-                    spriteNum = 4;
-                } else if (spriteNum == 4) {
-                    spriteNum = 5;
-                } else if (spriteNum == 5) {
-                    spriteNum = 6;
-                } else if (spriteNum == 6) {
-                    spriteNum = 7;
-                } else if (spriteNum == 7) {
-                    spriteNum = 8;
-                } else {
-                    spriteNum = 1; // Kembali ke posisi diam setelah langkah ke-8
-                }
+            
+            if (spriteCounter > 12) { 
+                if (spriteNum == 1) spriteNum = 2;
+                else if (spriteNum == 2) spriteNum = 3;
+                else if (spriteNum == 3) spriteNum = 4;
+                else if (spriteNum == 4) spriteNum = 5;
+                else if (spriteNum == 5) spriteNum = 6;
+                else if (spriteNum == 6) spriteNum = 7;
+                else if (spriteNum == 7) spriteNum = 8;
+                else spriteNum = 1; 
+                
                 spriteCounter = 0;
             }
 
             if (spriteNum >= 1 && spriteNum <= 8) {
-                currentImage = walkImages[spriteNum - 1]; // Ganti gambar sesuai dengan spriteNum
+                currentImage = walkImages[spriteNum - 1]; 
             }
         } else {
-            spriteNum = 1; // Kembali ke posisi diam jika berhenti
-        }
-
-        // Collision Check
-        if (!gp.collidesWithWall(nextX, y , this.hitbox) && !gp.collidesWithClosedGate(nextX, y , this.hitbox)) {
-            x = nextX;
-        }
-        if (!gp.collidesWithWall(x, nextY , this.hitbox) && !gp.collidesWithClosedGate(x, nextY , this.hitbox)) {
-            y = nextY;
+            spriteNum = 1; 
         }
     }
 

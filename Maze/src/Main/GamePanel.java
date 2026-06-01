@@ -2,6 +2,7 @@ package Main;
 
 import Obstacle.*;
 import Entitiy.*;
+
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Graphics;
@@ -12,12 +13,16 @@ import java.io.File;
 import java.io.InputStream;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.List;
 
 import javax.imageio.ImageIO;
 import javax.swing.ImageIcon;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
+
+import Backtrack.BacktrackInstantSolved;
+
 import java.awt.Rectangle;
 
 public class GamePanel extends JPanel implements Runnable {
@@ -54,7 +59,23 @@ public class GamePanel extends JPanel implements Runnable {
     Image wallEndLeft, wallEndRight, wallEndTop, wallEndBottom;
     Image wallTUp, wallTDown, wallTLeft, wallTRight, wallTIntersection;
 
-    public GamePanel() {
+    // --- AUTOSOLVE ADDITIONS ---
+    public BacktrackInstantSolved solver;
+    public List<BacktrackInstantSolved.Point> autoPath;
+    public int currentPathIndex = 0;
+    public boolean autoSolveActive;// Set to true to instantly auto-walk to the finish line
+    // ---------------------------
+
+    public GamePanel(boolean enableAutoSolve) {
+
+        this.autoSolveActive = enableAutoSolve;
+
+        this.addKeyListener(keyH);
+        this.setFocusable(true);
+        this.setPreferredSize(new Dimension(screenWidth, screenHeight));
+        this.setBackground(Color.BLACK);
+        this.setDoubleBuffered(true);
+
 
         this.addKeyListener(keyH);
         this.setFocusable(true);
@@ -65,16 +86,24 @@ public class GamePanel extends JPanel implements Runnable {
         loadAssets();
 
         int startX = 0, startY = 0;
+        int startGridRow = 0, startGridCol = 0;
+        int endGridRow = 0, endGridCol = 0;
+
         for (int i = 0; i < maxWorldRow; i++) {
             for (int j = 0; j < maxWorldCol; j++) {
                 if ("S".equals(map1[i][j])) {
                     startX = j * tileSize;
                     startY = i * tileSize;
+                    startGridRow = i;
+                    startGridCol = j;
+                }
+                if ("G".equals(map1[i][j])) {
+                    endGridRow = i;
+                    endGridCol = j;
                 }
             }
         }
 
-        
         this.timer = new Timer(100000); // Timer 100 detik (100.000 ms)
         // Simpan referensi untuk linking gates dengan pressure plates
         ArrayList<PressurePlate> pressurePlates = new ArrayList<>();
@@ -117,16 +146,17 @@ public class GamePanel extends JPanel implements Runnable {
             }
         }
 
-        // CONTOH: Link gate ke pressure plate
-        // Uncomment dan sesuaikan index untuk mengatur gate mana yang memerlukan
-        // trapdoor
-        // Jika ada pressure plate di index 0 dan gate di index 0:
-        // if (pressurePlates.size() > 0 && gates.size() > 0) {
-        // gates.get(0).setRequiredPressurePlate(pressurePlates.get(0));
-        // }
-
         // Pastikan parameter Player sesuai dengan constructor baru di Player.java
         player = new Player(this, keyH, playerimg, startX, startY);
+
+        // --- AUTOSOLVE INITIALIZATION ---
+        if (autoSolveActive) {
+            String solvedPathFile = resolveMapFilePath(MAP_FILE_PATH);
+            solver = new BacktrackInstantSolved(solvedPathFile);
+            // In BacktrackInstantSolved, x = row and y = col
+            autoPath = solver.solve(startGridRow, startGridCol, endGridRow, endGridCol);
+        }
+        // --------------------------------
 
         // Initialize camera at player-centered position (clamped)
         cameraX = player.x - player.screenX;
@@ -248,29 +278,24 @@ public class GamePanel extends JPanel implements Runnable {
     }
 
     public boolean collidesWithWall(int nextX, int nextY, Rectangle hitbox) {
-        // Hitung posisi absolut hitbox di koordinat world untuk posisi selanjutnya
         int hitboxLeftX = nextX + hitbox.x;
         int hitboxRightX = nextX + hitbox.x + hitbox.width - 1;
         int hitboxTopY = nextY + hitbox.y;
         int hitboxBottomY = nextY + hitbox.y + hitbox.height - 1;
-        // Konversi koordinat pixel absolut ke indeks baris/kolom matriks map
         int left = hitboxLeftX / tileSize;
         int right = hitboxRightX / tileSize;
         int top = hitboxTopY / tileSize;
         int bottom = hitboxBottomY / tileSize;
 
-        // Batasan luar map (Out of Bounds)
         if (left < 0 || right >= maxWorldCol || top < 0 || bottom >= maxWorldRow) {
             return true;
         }
 
-        // Cek apakah 4 sudut hitbox menubruk tembok ("1")
         return "1".equals(map1[top][left]) || "1".equals(map1[top][right]) || "1".equals(map1[bottom][left])
                 || "1".equals(map1[bottom][right]);
     }
 
     public boolean collidesWithClosedGate(int nextX, int nextY, Rectangle hitbox) {
-        // 1. Buat objek Rectangle bayangan untuk posisi player selanjutnya
         Rectangle playerFutureBounds = new Rectangle(
                 nextX + hitbox.x,
                 nextY + hitbox.y,
@@ -280,14 +305,8 @@ public class GamePanel extends JPanel implements Runnable {
         for (Obstacle obstacle : obstacles) {
             if (obstacle instanceof Gate) {
                 Gate gate = (Gate) obstacle;
-
-                // 2. Jika gate tertutup, cek tabrakan menggunakan .intersects()
                 if (!gate.open) {
-                    // Asumsi: Class Gate memiliki koordinat x, y, dan ukuran sendiri.
-                    // Jika Gate Anda sudah punya objek Rectangle sendiri, gunakan itu (misal:
-                    // gate.hitbox).
                     Rectangle gateBounds = new Rectangle(gate.x, gate.y, tileSize, tileSize);
-
                     if (playerFutureBounds.intersects(gateBounds)) {
                         return true;
                     }
@@ -307,7 +326,7 @@ public class GamePanel extends JPanel implements Runnable {
     public void run() {
         double drawInterval = 1000000000 / 60;
         double delta = 0;
-        long lastTime = System.nanoTime(); // Mendapatkan waktu saat ini dalam nanodetik
+        long lastTime = System.nanoTime(); 
 
         while (gameThread != null) {
             long currentTime = System.nanoTime();
@@ -322,38 +341,36 @@ public class GamePanel extends JPanel implements Runnable {
 
             checkDamage();
             if (timer.isTimeUp()) {
-                // Tampilkan pesan "Game Over" menggunakan JOptionPane
-                gameThread = null; // Hentikan game loop
+                gameThread = null; 
                 SwingUtilities.invokeLater(() -> {
                     JOptionPane.showMessageDialog(this, "Time's Up! Game Over!", "Game Over",
                             JOptionPane.INFORMATION_MESSAGE);
-                    System.exit(0); // Keluar dari aplikasi setelah menutup dialog
+                    System.exit(0); 
                 });
             }
             try {
-                Thread.sleep(1000 / 60); // Tidur sebentar untuk mengurangi beban CPU, target sekitar 60 FPS
+                Thread.sleep(1000 / 60); 
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
         }
-
-
-
     }
 
     public void update() {
         if (player != null) {
             player.update();
         }
+
         for (Entity entity : entities) {
             if (entity instanceof RedHood) {
                 ((RedHood) entity).update();
             }
         }
 
-        if  (timer != null) {
+        if (timer != null) {
             timer.update();
         }
+        
         for (Obstacle obstacle : obstacles) {
             if (obstacle instanceof FireTrap) {
                 ((FireTrap) obstacle).update();
@@ -365,7 +382,6 @@ public class GamePanel extends JPanel implements Runnable {
                 ((Gate) obstacle).update();
             }
             if (obstacle instanceof PressurePlate) {
-
                 ((PressurePlate) obstacle).update();
             }
             if (obstacle instanceof Finish) {
@@ -375,6 +391,7 @@ public class GamePanel extends JPanel implements Runnable {
                 ((HealPotion) obstacle).update();
             }
         }
+        
         // Update smooth camera after updating entities
         updateCamera();
     }
@@ -422,7 +439,6 @@ public class GamePanel extends JPanel implements Runnable {
         boolean left = hasWallAt(row, col - 1);
         boolean right = hasWallAt(row, col + 1);
 
-        // Intersection 4-arah
         if (top && bottom && left && right) {
             if (wallTIntersection != null) {
                 return wallTIntersection;
@@ -433,7 +449,6 @@ public class GamePanel extends JPanel implements Runnable {
             }
         }
 
-        // Pertigaan terbuka ke ATAS ┴ (bawah + kiri + kanan)
         if (bottom && left && right && !top) {
             if (wallTUp != null) {
                 return wallTUp;
@@ -442,7 +457,6 @@ public class GamePanel extends JPanel implements Runnable {
             }
         }
 
-        // Pertigaan terbuka ke BAWAH ┬ (atas + kiri + kanan)
         if (top && left && right && !bottom) {
             if (wallTDown != null) {
                 return wallTDown;
@@ -451,7 +465,6 @@ public class GamePanel extends JPanel implements Runnable {
             }
         }
 
-        // Pertigaan terbuka ke KIRI ┤ (atas + bawah + kanan)
         if (top && bottom && right && !left) {
             if (wallTLeft != null) {
                 return wallTLeft;
@@ -460,7 +473,6 @@ public class GamePanel extends JPanel implements Runnable {
             }
         }
 
-        // Pertigaan terbuka ke KANAN ├ (atas + bawah + kiri)
         if (top && bottom && left && !right) {
             if (wallTRight != null) {
                 return wallTRight;
@@ -469,7 +481,6 @@ public class GamePanel extends JPanel implements Runnable {
             }
         }
 
-        // --- Straight walls --- (Tidak berubah, sudah benar)
         if (top && bottom && !left && !right) {
             if (wallVertical != null) {
                 return wallVertical;
@@ -485,9 +496,6 @@ public class GamePanel extends JPanel implements Runnable {
             }
         }
 
-        // --- Corners --- (DITUKAR untuk visual yang benar)
-        // Jika ada tembok di ATAS dan KANAN, kita butuh pojokan yang visualnya
-        // menghadap ke bawah-kiri.
         if (top && right && !bottom && !left) {
             if (wallCornerBottomLeft != null) {
                 return wallCornerBottomLeft;
@@ -495,8 +503,6 @@ public class GamePanel extends JPanel implements Runnable {
                 return wallCenter;
             }
         }
-        // Jika ada tembok di KANAN dan BAWAH, kita butuh pojokan yang visualnya
-        // menghadap ke atas-kiri.
         if (right && bottom && !top && !left) {
             if (wallCornerTopLeft != null) {
                 return wallCornerTopLeft;
@@ -504,8 +510,6 @@ public class GamePanel extends JPanel implements Runnable {
                 return wallCenter;
             }
         }
-        // Jika ada tembok di BAWAH dan KIRI, kita butuh pojokan yang visualnya
-        // menghadap ke atas-kanan.
         if (bottom && left && !top && !right) {
             if (wallCornerTopRight != null) {
                 return wallCornerTopRight;
@@ -513,8 +517,6 @@ public class GamePanel extends JPanel implements Runnable {
                 return wallCenter;
             }
         }
-        // Jika ada tembok di KIRI dan ATAS, kita butuh pojokan yang visualnya menghadap
-        // ke bawah-kanan.
         if (left && top && !bottom && !right) {
             if (wallCornerBottomRight != null) {
                 return wallCornerBottomRight;
@@ -523,9 +525,6 @@ public class GamePanel extends JPanel implements Runnable {
             }
         }
 
-        // --- End pieces --- (DITUKAR untuk visual yang benar)
-        // Ujung yang menyambung ke ATAS, butuh gambar ujung yang TERTUTUP (misal:
-        // wallEndBottom)
         if (top && !bottom && !left && !right) {
             if (wallEndBottom != null) {
                 return wallEndBottom;
@@ -533,8 +532,6 @@ public class GamePanel extends JPanel implements Runnable {
                 return wallCenter;
             }
         }
-        // Ujung yang menyambung ke BAWAH, butuh gambar ujung yang TERTUTUP (misal:
-        // wallEndTop)
         if (bottom && !top && !left && !right) {
             if (wallEndTop != null) {
                 return wallEndTop;
@@ -542,8 +539,6 @@ public class GamePanel extends JPanel implements Runnable {
                 return wallCenter;
             }
         }
-        // Ujung yang menyambung ke KIRI, butuh gambar ujung yang TERTUTUP (misal:
-        // wallEndRight)
         if (left && !right && !top && !bottom) {
             if (wallEndRight != null) {
                 return wallEndRight;
@@ -551,8 +546,6 @@ public class GamePanel extends JPanel implements Runnable {
                 return wallCenter;
             }
         }
-        // Ujung yang menyambung ke KANAN, butuh gambar ujung yang TERTUTUP (misal:
-        // wallEndLeft)
         if (right && !left && !top && !bottom) {
             if (wallEndLeft != null) {
                 return wallEndLeft;
@@ -561,7 +554,6 @@ public class GamePanel extends JPanel implements Runnable {
             }
         }
 
-        // --- Fallback cases --- (Juga disesuaikan agar pojokan tertutup lebih rapi)
         if ((top && left && right) || (bottom && left && right)) {
             if (wallHorizontal != null) {
                 return wallHorizontal;
@@ -584,7 +576,6 @@ public class GamePanel extends JPanel implements Runnable {
             }
         }
 
-        // --- Default Fallback ---
         if (wallCenter != null) {
             return wallCenter;
         } else {
@@ -608,7 +599,6 @@ public class GamePanel extends JPanel implements Runnable {
                 int screenX = worldX - camX;
                 int screenY = worldY - camY;
 
-                // Hanya gambar tile jika masuk ke dalam pandangan layar monitor
                 if (worldX + tileSize > camX &&
                         worldX - tileSize < camX + screenWidth &&
                         worldY + tileSize > camY &&
@@ -628,7 +618,6 @@ public class GamePanel extends JPanel implements Runnable {
             }
         }
 
-        // Gambar semua obstacles, termasuk fire trap animasi
         for (Obstacle obstacle : obstacles) {
             if (obstacle instanceof FireTrap) {
                 ((FireTrap) obstacle).draw(g2, this);
@@ -659,7 +648,6 @@ public class GamePanel extends JPanel implements Runnable {
         if (player != null){
                 player.draw(g2);
                 player.darah.draw(g2);
-
         }
 
         if (timer != null) {
@@ -671,7 +659,7 @@ public class GamePanel extends JPanel implements Runnable {
 
     protected void WinGame() {
         System.out.println("Congratulations! You've reached the exit!");
-        System.exit(0); // Keluar dari game
+        System.exit(0); 
     }
 
     protected void checkDamage() {
@@ -681,7 +669,8 @@ public class GamePanel extends JPanel implements Runnable {
             if (obstacle instanceof Finish) {
                 Finish finish = (Finish) obstacle;
                 if (finish.collidesWith(player.x, player.y, tileSize)) {
-                    if (Key == 0) {
+                    // --- AUTOSOLVE WIN LOGIC OVERRIDE ---
+                    if (Key == 0 || autoSolveActive) {
                         WinGame();
                     } else {
                         System.out.println("You need to find all Red Hood to unlock the exit!");
@@ -693,14 +682,15 @@ public class GamePanel extends JPanel implements Runnable {
                 FireTrap fireTrap = (FireTrap) obstacle;
                 Rectangle fireHitbox = new Rectangle(fireTrap.x, fireTrap.y, 30, 30);
 
+                // --- AUTOSOLVE IMMUNITY (Bypass Trap Damage) ---
                 if (fireTrap.active && fireHitbox.intersects(player.getHitbox())
-                        && player.damageCooldown == 0) {
+                        && player.damageCooldown == 0 && !autoSolveActive) {
                     player.darah.takeDamage(30);
                     
                     if (player.darah.getCurrentHP() < 0) {
                         player.darah.update(0);
                     }
-                    player.damageCooldown = 60; // Jangan terkena damage lagi selama sekitar 1 detik
+                    player.damageCooldown = 60; 
 
                     System.out.println("Player hit by fire trap! HP: " + player.darah.getCurrentHP());
                     if (player.darah.getCurrentHP() <= 0) {
@@ -717,9 +707,7 @@ public class GamePanel extends JPanel implements Runnable {
                     for (Obstacle o : obstacles) {
                         if (o instanceof Gate) {
                             Gate gate = (Gate) o;
-                            if (gate.ID.equals(pressurePlate.ID) && pressurePlate.activated) { // Cek apakah ID gate
-                                                                                               // cocok dengan ID
-                                                                                               // pressure plate
+                            if (gate.ID.equals(pressurePlate.ID) && pressurePlate.activated) { 
                                 gate.alrOpen = true;
                                 gate.open = true;
                                 gate.openGate();
@@ -733,19 +721,19 @@ public class GamePanel extends JPanel implements Runnable {
             if (obstacle instanceof IceTrap) {
                 IceTrap iceTrap = (IceTrap) obstacle;
                 Rectangle iceHitbox = new Rectangle(iceTrap.x, iceTrap.y, tileSize, tileSize);
-                if (iceTrap.active && iceHitbox.intersects(player.getHitbox())) {
-                    player.applySlow(5); // Contoh: efek es berlangsung selama 2 detik (120 frame)
+                if (iceTrap.active && iceHitbox.intersects(player.getHitbox()) && !autoSolveActive) { // Auto immunity
+                    player.applySlow(5); 
                 }
             }
             if (obstacle instanceof HealPotion) {
                 HealPotion healPotion = (HealPotion) obstacle;
                 Rectangle healHitbox = new Rectangle(healPotion.x, healPotion.y, tileSize, tileSize);
                 if (healHitbox.intersects(player.getHitbox())) {
-                    player.darah.heal(50); // Contoh: menyembuhkan 50 HP
+                    player.darah.heal(50); 
                     if (player.darah.getCurrentHP() > 100) {
-                        player.darah.update(100); // Batas maksimal HP
+                        player.darah.update(100); 
                     }
-                    it.remove(); // Hapus potion setelah digunakan dengan aman
+                    it.remove(); 
                     System.out.println("Player consumed a heal potion! HP: " + player.darah.getCurrentHP());
                 }
             }
@@ -772,5 +760,4 @@ public class GamePanel extends JPanel implements Runnable {
             }
         }
     }
-
 }

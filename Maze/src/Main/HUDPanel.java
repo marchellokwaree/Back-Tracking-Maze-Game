@@ -218,7 +218,7 @@ public class HUDPanel extends JPanel {
 		instructionLabel.setAlignmentX(CENTER_ALIGNMENT);
 		instructionLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 15, 0));
 
-		difficultyCombo = new JComboBox<>(new String[] { "Easy", "Medium", "Hard", "Extreme" });
+		difficultyCombo = new JComboBox<>(new String[] { "Easy", "Medium", "Hard", "Extreme", "Backtrack 1", "Backtrack 2" });
 		difficultyCombo.setFont(customFont.deriveFont(16f));
 		difficultyCombo.setMaximumSize(new Dimension(300, 45));
 		difficultyCombo.setAlignmentX(CENTER_ALIGNMENT);
@@ -278,9 +278,12 @@ public class HUDPanel extends JPanel {
 	 * Panel kemudian diganti menjadi GamePanel dan game dimulai.
 	 */
 	private void onStartPressed() {
+		// Cek apakah mode yang dipilih adalah Backtrack 1
+		String selectedDifficulty = (String) difficultyCombo.getSelectedItem();
+		boolean isBacktrackMode = "Backtrack 1".equals(selectedDifficulty);
 
-		// Ganti panel HUD dengan GamePanel.
-		GamePanel gamePanel = new GamePanel();
+		// Ganti panel HUD dengan GamePanel, masukkan status backtrack ke constructor
+		GamePanel gamePanel = new GamePanel(isBacktrackMode);
 		parentFrame.setContentPane(gamePanel);
 		parentFrame.revalidate();
 		parentFrame.pack();
