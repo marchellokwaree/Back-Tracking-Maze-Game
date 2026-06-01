@@ -700,7 +700,7 @@ public class GamePanel extends JPanel implements Runnable {
                     }
                 }
             }
-            
+
             if (obstacle instanceof PressurePlate) {
                 PressurePlate pressurePlate = (PressurePlate) obstacle;
                 Rectangle pressureHitbox = new Rectangle(pressurePlate.x, pressurePlate.y, tileSize, tileSize);
@@ -723,7 +723,7 @@ public class GamePanel extends JPanel implements Runnable {
             if (obstacle instanceof IceTrap) {
                 IceTrap iceTrap = (IceTrap) obstacle;
                 Rectangle iceHitbox = new Rectangle(iceTrap.x, iceTrap.y, tileSize, tileSize);
-                if (iceTrap.active && iceHitbox.intersects(player.getHitbox()) && !autoSolveActive) { // Auto immunity
+                if (iceTrap.active && iceHitbox.intersects(player.getHitbox())) {
                     player.applySlow(5); 
                 }
             }

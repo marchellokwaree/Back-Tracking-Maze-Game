@@ -11,6 +11,8 @@ import java.util.Scanner;
 public class BacktrackInstantSolved {
 
     private int[][] costMap;
+    private int[][] plateMap; // Stores ID of Pressure Plates
+    private int[][] gateMap;  // Stores ID of Gates
     private int rows;
     private int cols;
 
@@ -29,15 +31,17 @@ public class BacktrackInstantSolved {
         }
     }
 
-    // Node class used for Dijkstra's Algorithm pathfinding
+    // Node class used for Dijkstra's State-Space Algorithm
     private static class Node implements Comparable<Node> {
         int x, y, totalCost;
+        int stateMask; // Bitmask storing which pressure plates we have activated
         Node parent;
 
-        public Node(int x, int y, int totalCost, Node parent) {
+        public Node(int x, int y, int totalCost, int stateMask, Node parent) {
             this.x = x;
             this.y = y;
             this.totalCost = totalCost;
+            this.stateMask = stateMask;
             this.parent = parent;
         }
 
@@ -52,35 +56,17 @@ public class BacktrackInstantSolved {
     }
 
     /**
-     * Reads the maze file and assigns movement "costs".
-     * 1 = Wall (-1, impassable)
-     * F = Fire Trap (Cost 10, strongly avoid)
-     * I = Ice Trap (Cost 5, somewhat avoid)
-     * Everything else = Normal Path (Cost 1)
+     * Reads the maze file and assigns movement costs, gates, and pressure plates.
      */
     private void loadMaze(String filePath) {
-        List<int[]> rowList = new ArrayList<>();
+        List<String[]> rowList = new ArrayList<>();
 
         try (Scanner scanner = new Scanner(new File(filePath))) {
             while (scanner.hasNextLine()) {
                 String line = scanner.nextLine().trim();
                 if (line.isEmpty()) continue;
-
                 String[] tokens = line.split("\\s+");
-                int[] row = new int[tokens.length];
-                
-                for (int i = 0; i < tokens.length; i++) {
-                    if (tokens[i].equals("1")) {
-                        row[i] = -1; // Wall
-                    } else if (tokens[i].equals("F")) {
-                        row[i] = 10; // High penalty (Avoid)
-                    } else if (tokens[i].equals("I")) {
-                        row[i] = 5;  // Medium penalty (Avoid if possible)
-                    } else {
-                        row[i] = 1;  // Normal safe floor
-                    }
-                }
-                rowList.add(row);
+                rowList.add(tokens);
             }
         } catch (FileNotFoundException e) {
             System.err.println("Maze file not found: " + e.getMessage());
@@ -91,23 +77,61 @@ public class BacktrackInstantSolved {
         if (rows > 0) {
             cols = rowList.get(0).length;
             costMap = new int[rows][cols];
-            for (int i = 0; i < rows; i++) {
-                costMap[i] = rowList.get(i);
+            plateMap = new int[rows][cols];
+            gateMap = new int[rows][cols];
+
+            for (int r = 0; r < rows; r++) {
+                String[] tokens = rowList.get(r);
+                for (int c = 0; c < cols; c++) {
+                    String t = tokens[c];
+                    
+                    if (t.equals("1")) {
+                        costMap[r][c] = -1; // Wall
+                    } else if (t.equals("F")) {
+                        costMap[r][c] = 10; // High penalty (Avoid)
+                    } else if (t.equals("I")) {
+                        costMap[r][c] = 5;  // Medium penalty
+                    } else {
+                        costMap[r][c] = 1;  // Normal safe floor
+                        
+                        // Check if it's a Pressure Plate (e.g., P1, P2)
+                        if (t.startsWith("P") && t.length() > 1) {
+                            try {
+                                int id = Integer.parseInt(t.substring(1));
+                                // Shift bits to create a unique signature (Key)
+                                plateMap[r][c] = (1 << id);
+                            } catch (NumberFormatException e) {}
+                        } 
+                        // Check if it's a Gate (e.g., D1, D2)
+                        else if (t.startsWith("D") && t.length() > 1) {
+                            try {
+                                int id = Integer.parseInt(t.substring(1));
+                                // Shift bits to require a unique signature (Lock)
+                                gateMap[r][c] = (1 << id);
+                            } catch (NumberFormatException e) {}
+                        }
+                    }
+                }
             }
         }
     }
 
     /**
-     * Uses Dijkstra's Algorithm (Priority Queue) to find the shortest and safest path.
+     * Uses Dijkstra's Algorithm with Bitmasking to find the shortest path 
+     * while collecting required keys (stepping on plates) to open doors.
      */
     public List<Point> solve(int startX, int startY, int endX, int endY) {
         if (costMap == null) return new ArrayList<>();
 
         PriorityQueue<Node> pq = new PriorityQueue<>();
-        boolean[][] visited = new boolean[rows][cols];
+        
+        // Visited array now has 3 dimensions: [Row][Col][StateMask]
+        // This allows the AI to visit the same tile multiple times (e.g., walking 
+        // to a plate, and walking back out) because its "State" has changed!
+        boolean[][][] visited = new boolean[rows][cols][1024]; 
 
-        // Start Node
-        pq.offer(new Node(startX, startY, 0, null));
+        // Start Node (State 0 means no plates stepped on yet)
+        pq.offer(new Node(startX, startY, 0, 0, null));
 
         // Directions: Right, Left, Down, Up
         int[] dx = {0, 0, 1, -1};
@@ -118,9 +142,9 @@ public class BacktrackInstantSolved {
         while (!pq.isEmpty()) {
             Node current = pq.poll();
 
-            // Skip if already visited
-            if (visited[current.x][current.y]) continue;
-            visited[current.x][current.y] = true;
+            // Skip if this exact state has been visited
+            if (visited[current.x][current.y][current.stateMask]) continue;
+            visited[current.x][current.y][current.stateMask] = true;
 
             // Target reached
             if (current.x == endX && current.y == endY) {
@@ -133,9 +157,27 @@ public class BacktrackInstantSolved {
                 int nx = current.x + dx[i];
                 int ny = current.y + dy[i];
 
-                // If within bounds, not a wall (-1), and not visited yet
-                if (nx >= 0 && nx < rows && ny >= 0 && ny < cols && !visited[nx][ny] && costMap[nx][ny] != -1) {
-                    pq.offer(new Node(nx, ny, current.totalCost + costMap[nx][ny], current));
+                // If within bounds and not a wall
+                if (nx >= 0 && nx < rows && ny >= 0 && ny < cols && costMap[nx][ny] != -1) {
+                    
+                    int nextStateMask = current.stateMask;
+                    
+                    // 1. If it's a Gate, do we have the required Plate activated?
+                    int requiredGate = gateMap[nx][ny];
+                    if (requiredGate != 0 && (current.stateMask & requiredGate) == 0) {
+                        continue; // We don't have the key, block path!
+                    }
+
+                    // 2. If it's a Plate, add its ID to our "Keys Collected" mask
+                    int plateHere = plateMap[nx][ny];
+                    if (plateHere != 0) {
+                        nextStateMask = current.stateMask | plateHere; 
+                    }
+
+                    // 3. Queue the next move if it hasn't been visited in this state
+                    if (!visited[nx][ny][nextStateMask]) {
+                        pq.offer(new Node(nx, ny, current.totalCost + costMap[nx][ny], nextStateMask, current));
+                    }
                 }
             }
         }
@@ -150,7 +192,7 @@ public class BacktrackInstantSolved {
             }
             // Reverse it so it goes from Start to End
             Collections.reverse(correctPath);
-            System.out.println("Optimal Path successfully found!");
+            System.out.println("Optimal Stateful Path successfully found!");
         } else {
             System.out.println("No valid path exists from start to end.");
         }
