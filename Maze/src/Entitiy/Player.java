@@ -124,14 +124,36 @@ public class Player extends Entity {
             boolean isAligned = (x % gp.getTileSize() == 0 && y % gp.getTileSize() == 0);
             
             if (isAligned) {
+                boolean currentlyOnFire = false;
+                
+                // First, check if we are ALREADY standing on a Fire Trap
+                for (Obstacle obs : gp.obstacles) {
+                    if (obs instanceof FireTrap) {
+                        FireTrap ft = (FireTrap) obs;
+                        if (ft.x == x && ft.y == y) {
+                            currentlyOnFire = true;
+                        }
+                    }
+                }
+
+                // Next, check the tile we are trying to walk to
                 for (Obstacle obs : gp.obstacles) {
                     if (obs instanceof FireTrap) {
                         FireTrap ft = (FireTrap) obs;
                         
                         if (ft.x == targetPixelX && ft.y == targetPixelY) {
-                            // Widened the danger window slightly to account for walking speed
-                            if (ft.currentFrame >= 3 && ft.currentFrame <= 9) {
-                                safeToMove = false;
+                            
+                            if (currentlyOnFire) {
+                                // SURVIVAL RULE: We are already in the danger zone! 
+                                // DO NOT freeze on top of a fire trap. Keep running!
+                                safeToMove = true;
+                            } else {
+                                // We are standing on a safe tile.
+                                // Only step into the fire trap if it just reset (Frame 0 or 1).
+                                // This guarantees we have maximum time to cross multiple fire traps in a row.
+                                if (ft.currentFrame > 1 && ft.currentFrame <= 9) {
+                                    safeToMove = false;
+                                }
                             }
                         }
                     }

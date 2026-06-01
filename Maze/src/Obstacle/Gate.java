@@ -25,7 +25,7 @@ public class Gate extends Obstacle {
         super(x, y, width, height);
         this.ID = ID;
         try {
-            if (!right) {
+            if (right) {
                 this.spriteSheet = loadBufferedImage("/Assets/ASSET/Traps/Push_Trap_Front.png");
             } else {
                 this.spriteSheet = loadBufferedImage("/Assets/ASSET/Traps/Push_Trap_Right.png");
