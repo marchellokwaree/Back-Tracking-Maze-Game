@@ -72,5 +72,13 @@ public class Timer {
     public boolean isTimeUp() {
         return timeUp;
     }
+
+    public int getCurrentTime() {
+        return currentTime; // This is the remaining time in seconds
+    }
+
+    public int getMaxTimeInSeconds() {
+        return (int) (maxTime / 1000); // This is your total starting time (e.g., 300)
+    }
 }
         

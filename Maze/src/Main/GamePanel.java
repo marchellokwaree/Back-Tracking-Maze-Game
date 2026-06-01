@@ -22,6 +22,7 @@ import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 
 import Backtrack.BacktrackInstantSolved;
+import Backtrack.BacktrackTryAndError;
 
 import java.awt.Rectangle;
 
@@ -60,15 +61,20 @@ public class GamePanel extends JPanel implements Runnable {
     Image wallTUp, wallTDown, wallTLeft, wallTRight, wallTIntersection;
 
     // --- AUTOSOLVE ADDITIONS ---
-    public BacktrackInstantSolved solver;
+    public BacktrackInstantSolved solver1;
+    public BacktrackTryAndError solver2;
     public List<BacktrackInstantSolved.Point> autoPath;
     public int currentPathIndex = 0;
     public boolean autoSolveActive;// Set to true to instantly auto-walk to the finish line
+    public int backtrackMode = 0;
     // ---------------------------
 
-    public GamePanel(boolean enableAutoSolve) {
+    public GamePanel(int backtrackMode) {
 
-        this.autoSolveActive = enableAutoSolve;
+        this.backtrackMode = backtrackMode;
+        if (backtrackMode > 0) {
+            this.autoSolveActive = true; // Aktifkan autosolve jika mode 1 atau 2
+        }
 
         this.addKeyListener(keyH);
         this.setFocusable(true);
@@ -104,7 +110,7 @@ public class GamePanel extends JPanel implements Runnable {
             }
         }
 
-        this.timer = new Timer(300000); // Timer 100 detik (100.000 ms)
+        this.timer = new Timer(1000000); // Timer 100 detik (100.000 ms)
         // Simpan referensi untuk linking gates dengan pressure plates
         ArrayList<PressurePlate> pressurePlates = new ArrayList<>();
         ArrayList<Gate> gates = new ArrayList<>();
@@ -152,9 +158,15 @@ public class GamePanel extends JPanel implements Runnable {
         // --- AUTOSOLVE INITIALIZATION ---
         if (autoSolveActive) {
             String solvedPathFile = resolveMapFilePath(MAP_FILE_PATH);
-            solver = new BacktrackInstantSolved(solvedPathFile);
-            // In BacktrackInstantSolved, x = row and y = col
-            autoPath = solver.solve(startGridRow, startGridCol, endGridRow, endGridCol);
+            
+            // Cek mode mana yang dipilih
+            if (backtrackMode == 1) {
+                solver1 = new BacktrackInstantSolved(solvedPathFile);
+                autoPath = solver1.solve(startGridRow, startGridCol, endGridRow, endGridCol);
+            } else if (backtrackMode == 2) {
+                solver2 = new BacktrackTryAndError(solvedPathFile);
+                autoPath = solver2.solve(startGridRow, startGridCol, endGridRow, endGridCol);
+            }
         }
         // --------------------------------
 
@@ -658,7 +670,9 @@ public class GamePanel extends JPanel implements Runnable {
     }
 
     protected void WinGame() {
+        int timeSpent = timer.getMaxTimeInSeconds() - timer.getCurrentTime();
         System.out.println("Congratulations! You've reached the exit!");
+        System.out.println("Time spent: " + timeSpent + " seconds.");
         System.exit(0); 
     }
 
@@ -670,7 +684,8 @@ public class GamePanel extends JPanel implements Runnable {
                 Finish finish = (Finish) obstacle;
                 if (finish.collidesWith(player.x, player.y, tileSize)) {
                     // --- AUTOSOLVE WIN LOGIC OVERRIDE ---
-                    if (Key == 0 || autoSolveActive) {
+                    if (Key == 0) {
+                        System.out.println();
                         WinGame();
                     } else {
                         System.out.println("You need to find all Red Hood to unlock the exit!");

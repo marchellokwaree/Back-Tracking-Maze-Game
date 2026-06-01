@@ -278,12 +278,17 @@ public class HUDPanel extends JPanel {
 	 * Panel kemudian diganti menjadi GamePanel dan game dimulai.
 	 */
 	private void onStartPressed() {
-		// Cek apakah mode yang dipilih adalah Backtrack 1
 		String selectedDifficulty = (String) difficultyCombo.getSelectedItem();
-		boolean isBacktrackMode = "Backtrack 1".equals(selectedDifficulty);
+		
+		int backtrackMode = 0; // 0 = Normal/Manual (Easy, Medium, etc)
+		if ("Backtrack 1".equals(selectedDifficulty)) {
+			backtrackMode = 1; // Instant Solved
+		} else if ("Backtrack 2".equals(selectedDifficulty)) {
+			backtrackMode = 2; // Try and Error
+		}
 
-		// Ganti panel HUD dengan GamePanel, masukkan status backtrack ke constructor
-		GamePanel gamePanel = new GamePanel(isBacktrackMode);
+		// Kirim angka mode ke GamePanel
+		GamePanel gamePanel = new GamePanel(backtrackMode);
 		parentFrame.setContentPane(gamePanel);
 		parentFrame.revalidate();
 		parentFrame.pack();
