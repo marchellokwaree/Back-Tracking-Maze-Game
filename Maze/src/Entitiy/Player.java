@@ -14,6 +14,8 @@ import javax.imageio.ImageIO;
 import Main.GamePanel;
 import Main.KeyHandler;
 import Backtrack.BacktrackInstantSolved;
+import Obstacle.FireTrap; // <-- ADD THIS
+import Obstacle.Obstacle; // <-- ADD THIS
 
 public class Player extends Entity {
     GamePanel gp;
@@ -115,37 +117,63 @@ public class Player extends Entity {
             int targetPixelX = targetNode.y * gp.getTileSize(); 
             int targetPixelY = targetNode.x * gp.getTileSize(); 
 
-            int autoSpeed = speed; // Auto-solve speed
-
-            if (x < targetPixelX) {
-                nextX += autoSpeed;
-                hadapKiri = false;
-                moving = true;
-                if (nextX > targetPixelX) nextX = targetPixelX;
-            } else if (x > targetPixelX) {
-                nextX -= autoSpeed;
-                hadapKiri = true;
-                moving = true;
-                if (nextX < targetPixelX) nextX = targetPixelX;
+            // --- FIRE TRAP SAFETY CHECK ---
+            boolean safeToMove = true;
+            
+            // 1. Are we standing perfectly on a tile grid?
+            boolean isAligned = (x % gp.getTileSize() == 0 && y % gp.getTileSize() == 0);
+            
+            if (isAligned) {
+                for (Obstacle obs : gp.obstacles) {
+                    if (obs instanceof FireTrap) {
+                        FireTrap ft = (FireTrap) obs;
+                        
+                        if (ft.x == targetPixelX && ft.y == targetPixelY) {
+                            // Widened the danger window slightly to account for walking speed
+                            if (ft.currentFrame >= 3 && ft.currentFrame <= 9) {
+                                safeToMove = false;
+                            }
+                        }
+                    }
+                }
             }
+            
+            if (safeToMove) {
+                int autoSpeed = speed; // Same speed as user control
 
-            if (y < targetPixelY) {
-                nextY += autoSpeed;
-                moving = true;
-                if (nextY > targetPixelY) nextY = targetPixelY;
-            } else if (y > targetPixelY) {
-                nextY -= autoSpeed;
-                moving = true;
-                if (nextY < targetPixelY) nextY = targetPixelY;
+                if (x < targetPixelX) {
+                    nextX += autoSpeed;
+                    hadapKiri = false;
+                    moving = true;
+                    if (nextX > targetPixelX) nextX = targetPixelX;
+                } else if (x > targetPixelX) {
+                    nextX -= autoSpeed;
+                    hadapKiri = true;
+                    moving = true;
+                    if (nextX < targetPixelX) nextX = targetPixelX;
+                }
+
+                if (y < targetPixelY) {
+                    nextY += autoSpeed;
+                    moving = true;
+                    if (nextY > targetPixelY) nextY = targetPixelY;
+                } else if (y > targetPixelY) {
+                    nextY -= autoSpeed;
+                    moving = true;
+                    if (nextY < targetPixelY) nextY = targetPixelY;
+                }
+
+                // THE FIX: Check if nextX and nextY reached the target so we don't freeze on the trap!
+                if (nextX == targetPixelX && nextY == targetPixelY) {
+                    gp.currentPathIndex++;
+                }
+
+                // Ghost through walls during auto-solve
+                x = nextX;
+                y = nextY;
+            } else {
+                moving = false; 
             }
-
-            if (x == targetPixelX && y == targetPixelY) {
-                gp.currentPathIndex++;
-            }
-
-            // Ghost through walls during auto-solve
-            x = nextX;
-            y = nextY;
 
         } else {
             

@@ -682,9 +682,10 @@ public class GamePanel extends JPanel implements Runnable {
                 FireTrap fireTrap = (FireTrap) obstacle;
                 Rectangle fireHitbox = new Rectangle(fireTrap.x, fireTrap.y, 30, 30);
 
-                // --- AUTOSOLVE IMMUNITY (Bypass Trap Damage) ---
+                // --- IMMUNITY REMOVED: Auto-solve can now take damage! ---
                 if (fireTrap.active && fireHitbox.intersects(player.getHitbox())
-                        && player.damageCooldown == 0 && !autoSolveActive) {
+                        && player.damageCooldown == 0) {
+                    
                     player.darah.takeDamage(30);
                     
                     if (player.darah.getCurrentHP() < 0) {
@@ -699,6 +700,7 @@ public class GamePanel extends JPanel implements Runnable {
                     }
                 }
             }
+            
             if (obstacle instanceof PressurePlate) {
                 PressurePlate pressurePlate = (PressurePlate) obstacle;
                 Rectangle pressureHitbox = new Rectangle(pressurePlate.x, pressurePlate.y, tileSize, tileSize);

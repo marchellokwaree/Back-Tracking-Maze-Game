@@ -3,16 +3,16 @@ package Backtrack;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.PriorityQueue;
 import java.util.Scanner;
 
 public class BacktrackInstantSolved {
 
-    private int[][] maze;
+    private int[][] costMap;
     private int rows;
     private int cols;
-    private boolean[][] visited;
-    private List<Point> correctPath;
 
     // Helper class to store X and Y coordinates
     public static class Point {
@@ -29,37 +29,55 @@ public class BacktrackInstantSolved {
         }
     }
 
+    // Node class used for Dijkstra's Algorithm pathfinding
+    private static class Node implements Comparable<Node> {
+        int x, y, totalCost;
+        Node parent;
+
+        public Node(int x, int y, int totalCost, Node parent) {
+            this.x = x;
+            this.y = y;
+            this.totalCost = totalCost;
+            this.parent = parent;
+        }
+
+        @Override
+        public int compareTo(Node other) {
+            return Integer.compare(this.totalCost, other.totalCost);
+        }
+    }
+
     public BacktrackInstantSolved(String filePath) {
         loadMaze(filePath);
     }
 
     /**
-     * Reads the maze file and converts it into a 2D integer array.
-     * 1 = Wall. Everything else (0, P1, I, F, H, etc.) = 0 (Path).
+     * Reads the maze file and assigns movement "costs".
+     * 1 = Wall (-1, impassable)
+     * F = Fire Trap (Cost 10, strongly avoid)
+     * I = Ice Trap (Cost 5, somewhat avoid)
+     * Everything else = Normal Path (Cost 1)
      */
-
-
     private void loadMaze(String filePath) {
         List<int[]> rowList = new ArrayList<>();
 
         try (Scanner scanner = new Scanner(new File(filePath))) {
             while (scanner.hasNextLine()) {
-                // Read the line and remove leading/trailing whitespace
                 String line = scanner.nextLine().trim();
-                
-                // Skip completely empty lines
                 if (line.isEmpty()) continue;
 
-                // Split the line by spaces into an array of tokens
                 String[] tokens = line.split("\\s+");
                 int[] row = new int[tokens.length];
                 
                 for (int i = 0; i < tokens.length; i++) {
-                    // Strictly check for "1" as a wall, everything else becomes 0
                     if (tokens[i].equals("1")) {
-                        row[i] = 1;
+                        row[i] = -1; // Wall
+                    } else if (tokens[i].equals("F")) {
+                        row[i] = 10; // High penalty (Avoid)
+                    } else if (tokens[i].equals("I")) {
+                        row[i] = 5;  // Medium penalty (Avoid if possible)
                     } else {
-                        row[i] = 0; 
+                        row[i] = 1;  // Normal safe floor
                     }
                 }
                 rowList.add(row);
@@ -69,105 +87,74 @@ public class BacktrackInstantSolved {
             return;
         }
 
-        // Initialize maze dimensions
         rows = rowList.size();
         if (rows > 0) {
             cols = rowList.get(0).length;
-            maze = new int[rows][cols];
+            costMap = new int[rows][cols];
             for (int i = 0; i < rows; i++) {
-                maze[i] = rowList.get(i);
+                costMap[i] = rowList.get(i);
             }
         }
     }
 
     /**
-     * Triggers the backtracking algorithm to find the exact path.
+     * Uses Dijkstra's Algorithm (Priority Queue) to find the shortest and safest path.
      */
     public List<Point> solve(int startX, int startY, int endX, int endY) {
-        if (maze == null) return new ArrayList<>();
+        if (costMap == null) return new ArrayList<>();
 
-        visited = new boolean[rows][cols];
-        correctPath = new ArrayList<>();
+        PriorityQueue<Node> pq = new PriorityQueue<>();
+        boolean[][] visited = new boolean[rows][cols];
 
-        if (backtrack(startX, startY, endX, endY)) {
-            System.out.println("Path successfully found!");
-            return correctPath;
+        // Start Node
+        pq.offer(new Node(startX, startY, 0, null));
+
+        // Directions: Right, Left, Down, Up
+        int[] dx = {0, 0, 1, -1};
+        int[] dy = {1, -1, 0, 0};
+
+        Node endNode = null;
+
+        while (!pq.isEmpty()) {
+            Node current = pq.poll();
+
+            // Skip if already visited
+            if (visited[current.x][current.y]) continue;
+            visited[current.x][current.y] = true;
+
+            // Target reached
+            if (current.x == endX && current.y == endY) {
+                endNode = current;
+                break;
+            }
+
+            // Check all 4 neighbors
+            for (int i = 0; i < 4; i++) {
+                int nx = current.x + dx[i];
+                int ny = current.y + dy[i];
+
+                // If within bounds, not a wall (-1), and not visited yet
+                if (nx >= 0 && nx < rows && ny >= 0 && ny < cols && !visited[nx][ny] && costMap[nx][ny] != -1) {
+                    pq.offer(new Node(nx, ny, current.totalCost + costMap[nx][ny], current));
+                }
+            }
+        }
+
+        // Trace back the optimal path
+        List<Point> correctPath = new ArrayList<>();
+        if (endNode != null) {
+            Node curr = endNode;
+            while (curr != null) {
+                correctPath.add(new Point(curr.x, curr.y));
+                curr = curr.parent;
+            }
+            // Reverse it so it goes from Start to End
+            Collections.reverse(correctPath);
+            System.out.println("Optimal Path successfully found!");
         } else {
             System.out.println("No valid path exists from start to end.");
-            return new ArrayList<>();
         }
-    }
-
-    /**
-     * The core recursive backtracking algorithm.
-     */
-    private boolean backtrack(int x, int y, int endX, int endY) {
-        // Base Case 1: Out of bounds
-        if (x < 0 || y < 0 || x >= rows || y >= cols) {
-            return false;
-        }
-        // Base Case 2: Hit a wall or already visited this cell
-        if (maze[x][y] == 1 || visited[x][y]) {
-            return false;
-        }
-
-        // Mark the current cell as visited and add to our current path
-        visited[x][y] = true;
-        correctPath.add(new Point(x, y));
-
-        // Base Case 3: Reached the destination
-        if (x == endX && y == endY) {
-            return true;
-        }
-
-        // Try moving in all 4 directions (Down, Up, Right, Left)
-        if (backtrack(x + 1, y, endX, endY)) return true; // Down
-        if (backtrack(x - 1, y, endX, endY)) return true; // Up
-        if (backtrack(x, y + 1, endX, endY)) return true; // Right
-        if (backtrack(x, y - 1, endX, endY)) return true; // Left
-
-        // If no direction works, we are at a dead end. 
-        // Backtrack: Remove this cell from the correct path and return false.
-        correctPath.remove(correctPath.size() - 1);
-        return false;
-    }
-
-    /**
-     * Prints the maze layout alongside the solution path for easy visualization.
-     */
-    public void printSolutionGrid() {
-        if (maze == null || correctPath == null) return;
-
-        char[][] displayGrid = new char[rows][cols];
-        for (int r = 0; r < rows; r++) {
-            for (int c = 0; c < cols; c++) {
-                displayGrid[r][c] = (maze[r][c] == 1) ? '█' : ' ';
-            }
-        }
-
-        // Mark the correct path with dots
-        for (Point p : correctPath) {
-            displayGrid[p.x][p.y] = '.';
-        }
-
-        for (int r = 0; r < rows; r++) {
-            for (int c = 0; c < cols; c++) {
-                System.out.print(displayGrid[r][c] + " ");
-            }
-            System.out.println();
-        }
-    }
-
-    // --- Main method for testing the logic independently ---
-    public static void main(String[] args) {
-        // Adjust the path to match where Maze1.txt is located in your project directory
-        BacktrackInstantSolved solver = new BacktrackInstantSolved("src/Assets/MAP/Maze1.txt");
-
-        // Example start coordinates (Row 1, Col 1) and end coordinates (Row 14, Col 37)
-        // You will need to pass the actual start and end coordinates based on where 'P1' and the exit are.
-        List<Point> path = solver.solve(1, 1, 14, 37);
-
-        System.out.println("Steps to finish: " + path.size());
-        solver.printSolutionGrid();
+        
+        return correctPath;
     }
 }

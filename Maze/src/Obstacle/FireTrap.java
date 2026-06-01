@@ -7,7 +7,7 @@ import Main.GamePanel;
 public class FireTrap extends Obstacle {
     private BufferedImage spriteSheet;
     private BufferedImage[] animationFrames = new BufferedImage[14];
-    private int currentFrame = 0;
+    public int currentFrame = 0;
     private int animationCounter = 0;
     private final int animationDelay = 6;
     public boolean active = false;
