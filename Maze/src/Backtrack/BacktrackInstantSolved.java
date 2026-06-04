@@ -3,11 +3,9 @@ package Backtrack;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.PriorityQueue;
 import java.util.Scanner;
 
 public class BacktrackInstantSolved {
@@ -22,7 +20,11 @@ public class BacktrackInstantSolved {
     private int totalNpcMask = 0; // The final "Victory" mask requiring all NPCs
     private int maxStates = 1;    // How many possible states exist in this maze
 
-    // Helper class to store X and Y coordinates
+    // Backtracking global trackers
+    private int bestCost;
+    private List<Point> bestPath;
+    private int[][][] minCostVisited; // Memoization to prune expensive paths
+
     public static class Point {
         public int x, y;
 
@@ -37,33 +39,10 @@ public class BacktrackInstantSolved {
         }
     }
 
-    // Node class used for Dijkstra's State-Space Algorithm
-    private static class Node implements Comparable<Node> {
-        int x, y, totalCost;
-        int stateMask; // Bitmask storing activated plates AND collected NPCs
-        Node parent;
-
-        public Node(int x, int y, int totalCost, int stateMask, Node parent) {
-            this.x = x;
-            this.y = y;
-            this.totalCost = totalCost;
-            this.stateMask = stateMask;
-            this.parent = parent;
-        }
-
-        @Override
-        public int compareTo(Node other) {
-            return Integer.compare(this.totalCost, other.totalCost);
-        }
-    }
-
     public BacktrackInstantSolved(String filePath) {
         loadMaze(filePath);
     }
 
-    /**
-     * Reads the maze file and dynamically assigns unique bits to plates, gates, and NPCs.
-     */
     private void loadMaze(String filePath) {
         List<String[]> rowList = new ArrayList<>();
 
@@ -86,7 +65,6 @@ public class BacktrackInstantSolved {
             gateMap = new int[rows][cols];
             npcMap = new int[rows][cols];
 
-            // Dynamic bit assignment ensures we only use as much memory as needed
             int currentBit = 0; 
             Map<Integer, Integer> plateBits = new HashMap<>();
 
@@ -104,13 +82,11 @@ public class BacktrackInstantSolved {
                     } else {
                         costMap[r][c] = 1;  // Normal safe floor
                         
-                        // If it's a RedHood (NPC)
                         if (t.equals("N")) {
                             int bit = (1 << currentBit++);
                             npcMap[r][c] = bit;
-                            totalNpcMask |= bit; // Add this NPC to the victory requirement
+                            totalNpcMask |= bit;
                         }
-                        // Check if it's a Pressure Plate (e.g., P1)
                         else if (t.startsWith("P") && t.length() > 1) {
                             try {
                                 int id = Integer.parseInt(t.substring(1));
@@ -120,7 +96,6 @@ public class BacktrackInstantSolved {
                                 plateMap[r][c] = plateBits.get(id);
                             } catch (NumberFormatException e) {}
                         } 
-                        // Check if it's a Gate (e.g., D1)
                         else if (t.startsWith("D") && t.length() > 1) {
                             try {
                                 int id = Integer.parseInt(t.substring(1));
@@ -133,88 +108,105 @@ public class BacktrackInstantSolved {
                     }
                 }
             }
-            
-            // Calculate total possible states based on the number of interactive items
             maxStates = 1 << currentBit; 
         }
     }
 
     /**
-     * Uses Dijkstra's Algorithm with Bitmasking to find the shortest path 
-     * while collecting ALL NPCs and triggering required plates for gates.
+     * Initializes the tracking arrays and kicks off the recursive search.
      */
     public List<Point> solve(int startX, int startY, int endX, int endY) {
         if (costMap == null) return new ArrayList<>();
 
-        PriorityQueue<Node> pq = new PriorityQueue<>();
+        // Reset state for new solve
+        bestCost = Integer.MAX_VALUE;
+        bestPath = new ArrayList<>();
+        minCostVisited = new int[rows][cols][maxStates];
         
-        // 3D array tracks X, Y, and the current "Backpack State" (items/plates collected)
-        boolean[][][] visited = new boolean[rows][cols][maxStates]; 
-
-        // Start Node (State 0 means no plates stepped on, no NPCs collected yet)
-        pq.offer(new Node(startX, startY, 0, 0, null));
-
-        int[] dx = {0, 0, 1, -1};
-        int[] dy = {1, -1, 0, 0};
-
-        Node endNode = null;
-
-        while (!pq.isEmpty()) {
-            Node current = pq.poll();
-
-            if (visited[current.x][current.y][current.stateMask]) continue;
-            visited[current.x][current.y][current.stateMask] = true;
-
-            // VICTORY CHECK: Reached the goal AND collected all NPCs
-            if (current.x == endX && current.y == endY) {
-                if ((current.stateMask & totalNpcMask) == totalNpcMask) {
-                    endNode = current;
-                    break;
-                }
-                // If they haven't collected all NPCs, the Goal acts like a normal floor tile
-            }
-
-            // Check all 4 neighbors
-            for (int i = 0; i < 4; i++) {
-                int nx = current.x + dx[i];
-                int ny = current.y + dy[i];
-
-                if (nx >= 0 && nx < rows && ny >= 0 && ny < cols && costMap[nx][ny] != -1) {
-                    
-                    int nextStateMask = current.stateMask;
-                    
-                    // 1. Is this a locked Gate? Check if we stepped on the required Plate.
-                    int requiredGate = gateMap[nx][ny];
-                    if (requiredGate != 0 && (current.stateMask & requiredGate) == 0) {
-                        continue; // Blocked! We don't have the key for this gate yet.
-                    }
-
-                    // 2. Is there a Plate or NPC here? Add it to our State Mask (Backpack).
-                    nextStateMask |= plateMap[nx][ny];
-                    nextStateMask |= npcMap[nx][ny];
-
-                    // 3. Queue the move if we haven't been here in this specific state yet.
-                    if (!visited[nx][ny][nextStateMask]) {
-                        pq.offer(new Node(nx, ny, current.totalCost + costMap[nx][ny], nextStateMask, current));
-                    }
+        // Initialize memoization array with Max Value
+        for (int r = 0; r < rows; r++) {
+            for (int c = 0; c < cols; c++) {
+                for (int s = 0; s < maxStates; s++) {
+                    minCostVisited[r][c][s] = Integer.MAX_VALUE;
                 }
             }
         }
 
-        // Trace back the optimal path
-        List<Point> correctPath = new ArrayList<>();
-        if (endNode != null) {
-            Node curr = endNode;
-            while (curr != null) {
-                correctPath.add(new Point(curr.x, curr.y));
-                curr = curr.parent;
-            }
-            Collections.reverse(correctPath);
+        List<Point> currentPath = new ArrayList<>();
+        currentPath.add(new Point(startX, startY));
+        
+        // Check if the starting position instantly gives us an NPC or Plate
+        int startState = plateMap[startX][startY] | npcMap[startX][startY];
+
+        // Begin recursive backtracking
+        backtrack(startX, startY, endX, endY, 0, startState, currentPath);
+
+        if (!bestPath.isEmpty()) {
             System.out.println("Optimal Stateful Path successfully found! All NPCs Collected.");
         } else {
             System.out.println("No valid path exists to collect all keys and reach the exit.");
         }
         
-        return correctPath;
+        return bestPath;
+    }
+
+    /**
+     * The core recursive backtracking function.
+     */
+    private void backtrack(int x, int y, int endX, int endY, int currentCost, int stateMask, List<Point> currentPath) {
+        // PRUNING 1: If current path is already more expensive than the best found, abort.
+        if (currentCost >= bestCost) {
+            return;
+        }
+
+        // PRUNING 2: If we've visited this exact tile with the exact same items/keys, 
+        // but with a cheaper or equal cost, exploring further is redundant. Abort.
+        if (currentCost >= minCostVisited[x][y][stateMask]) {
+            return;
+        }
+        
+        // Record our current best cost for this specific state at this location
+        minCostVisited[x][y][stateMask] = currentCost;
+
+        // VICTORY CHECK
+        if (x == endX && y == endY) {
+            if ((stateMask & totalNpcMask) == totalNpcMask) {
+                // We reached the end with all NPCs at a lower cost than before
+                bestCost = currentCost;
+                bestPath = new ArrayList<>(currentPath); 
+            }
+            return; // Exit this branch
+        }
+
+        int[] dx = {0, 0, 1, -1};
+        int[] dy = {1, -1, 0, 0};
+
+        // Explore all 4 directions
+        for (int i = 0; i < 4; i++) {
+            int nx = x + dx[i];
+            int ny = y + dy[i];
+
+            if (nx >= 0 && nx < rows && ny >= 0 && ny < cols && costMap[nx][ny] != -1) {
+                
+                // 1. Check if Gate is locked
+                int requiredGate = gateMap[nx][ny];
+                if (requiredGate != 0 && (stateMask & requiredGate) == 0) {
+                    continue; 
+                }
+
+                // 2. Prepare next states
+                int nextStateMask = stateMask | plateMap[nx][ny] | npcMap[nx][ny];
+                int nextCost = currentCost + costMap[nx][ny];
+
+                // 3. DO: Add to path
+                currentPath.add(new Point(nx, ny));
+                
+                // 4. RECURSE
+                backtrack(nx, ny, endX, endY, nextCost, nextStateMask, currentPath);
+                
+                // 5. UNDO: Backtrack by removing the last point added
+                currentPath.remove(currentPath.size() - 1);
+            }
+        }
     }
 }
