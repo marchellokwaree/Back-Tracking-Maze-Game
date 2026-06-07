@@ -111,9 +111,8 @@ public class GamePanel extends JPanel implements Runnable {
         }
 
         this.timer = new Timer(1000000); // Timer 100 detik (100.000 ms)
-        // Simpan referensi untuk linking gates dengan pressure plates
-        ArrayList<PressurePlate> pressurePlates = new ArrayList<>();
-        ArrayList<Gate> gates = new ArrayList<>();
+        
+        
 
         for (int i = 0; i < maxWorldRow; i++) {
             for (int j = 0; j < maxWorldCol; j++) {
@@ -135,13 +134,13 @@ public class GamePanel extends JPanel implements Runnable {
                         String id = map1[i][j].substring(1); // Ambil ID setelah 'P'
                         PressurePlate plate = new PressurePlate(j * tileSize, i * tileSize, tileSize, tileSize, id);
                         obstacles.add(plate);
-                        pressurePlates.add(plate);
+                        
                     } else if (map1[i][j].charAt(0) == 'D') {
                         String id = map1[i][j].substring(1); // Ambil ID setelah 'G'
                         boolean aboveIsWall = (i - 1 >= 0 && "1".equals(map1[i - 1][j]));
                         Gate gate = new Gate(j * tileSize, i * tileSize, tileSize, tileSize, aboveIsWall, id);
                         obstacles.add(gate);
-                        gates.add(gate);
+                        
                     }
                 }
 
