@@ -11,32 +11,25 @@ import java.util.Scanner;
 public class BacktrackInstantSolved {
 
     private int[][] costMap;
-    private int[][] plateMap; // Stores ID of Pressure Plates
-    private int[][] gateMap;  // Stores ID of Gates
-    private int[][] npcMap;   // Stores unique bits for each RedHood (NPC)
+    private int[][] plateMap;
+    private int[][] gateMap;
+    private int[][] npcMap;
     private int rows;
     private int cols;
     
-    private int totalNpcMask = 0; // The final "Victory" mask requiring all NPCs
-    private int maxStates = 1;    // How many possible states exist in this maze
+    private int totalNpcMask = 0; 
 
-    // Backtracking global trackers
     private int bestCost;
     private List<Point> bestPath;
-    private int[][][] minCostVisited; // Memoization to prune expensive paths
+    
+    // SOLUSI ELEGAN DP: Menggunakan HashMap (Bukan Array 3D State Space!)
+    private Map<String, Integer> dpMemo;      
 
     public static class Point {
         public int x, y;
-
-        public Point(int x, int y) {
-            this.x = x;
-            this.y = y;
-        }
-
+        public Point(int x, int y) { this.x = x; this.y = y; }
         @Override
-        public String toString() {
-            return "(" + x + ", " + y + ")";
-        }
+        public String toString() { return "(" + x + ", " + y + ")"; }
     }
 
     public BacktrackInstantSolved(String filePath) {
@@ -45,7 +38,6 @@ public class BacktrackInstantSolved {
 
     private void loadMaze(String filePath) {
         List<String[]> rowList = new ArrayList<>();
-
         try (Scanner scanner = new Scanner(new File(filePath))) {
             while (scanner.hasNextLine()) {
                 String line = scanner.nextLine().trim();
@@ -53,7 +45,7 @@ public class BacktrackInstantSolved {
                 rowList.add(line.split("\\s+"));
             }
         } catch (FileNotFoundException e) {
-            System.err.println("Maze file not found: " + e.getMessage());
+            System.err.println("File Maze tidak ditemukan: " + e.getMessage());
             return;
         }
 
@@ -74,13 +66,13 @@ public class BacktrackInstantSolved {
                     String t = tokens[c];
                     
                     if (t.equals("1")) {
-                        costMap[r][c] = -1; // Wall
+                        costMap[r][c] = -1; // Tembok
                     } else if (t.equals("F")) {
-                        costMap[r][c] = 10; // High penalty
+                        costMap[r][c] = 10; // Api (Mahal)
                     } else if (t.equals("I")) {
-                        costMap[r][c] = 5;  // Medium penalty
+                        costMap[r][c] = 5;  // Es (Sedang)
                     } else {
-                        costMap[r][c] = 1;  // Normal safe floor
+                        costMap[r][c] = 1;  // Jalan biasa
                         
                         if (t.equals("N")) {
                             int bit = (1 << currentBit++);
@@ -90,121 +82,99 @@ public class BacktrackInstantSolved {
                         else if (t.startsWith("P") && t.length() > 1) {
                             try {
                                 int id = Integer.parseInt(t.substring(1));
-                                if (!plateBits.containsKey(id)) {
-                                    plateBits.put(id, 1 << currentBit++);
-                                }
+                                if (!plateBits.containsKey(id)) plateBits.put(id, 1 << currentBit++);
                                 plateMap[r][c] = plateBits.get(id);
                             } catch (NumberFormatException e) {}
                         } 
                         else if (t.startsWith("D") && t.length() > 1) {
                             try {
                                 int id = Integer.parseInt(t.substring(1));
-                                if (!plateBits.containsKey(id)) {
-                                    plateBits.put(id, 1 << currentBit++);
-                                }
+                                if (!plateBits.containsKey(id)) plateBits.put(id, 1 << currentBit++);
                                 gateMap[r][c] = plateBits.get(id);
                             } catch (NumberFormatException e) {}
                         }
                     }
                 }
             }
-            maxStates = 1 << currentBit; 
         }
     }
 
-    /**
-     * Initializes the tracking arrays and kicks off the recursive search.
-     */
     public List<Point> solve(int startX, int startY, int endX, int endY) {
         if (costMap == null) return new ArrayList<>();
 
-        // Reset state for new solve
         bestCost = Integer.MAX_VALUE;
         bestPath = new ArrayList<>();
-        minCostVisited = new int[rows][cols][maxStates];
-        
-        // Initialize memoization array with Max Value
-        for (int r = 0; r < rows; r++) {
-            for (int c = 0; c < cols; c++) {
-                for (int s = 0; s < maxStates; s++) {
-                    minCostVisited[r][c][s] = Integer.MAX_VALUE;
-                }
-            }
-        }
+        dpMemo = new HashMap<>(); // Bersihkan DP sebelum mencari jalan
 
-        List<Point> currentPath = new ArrayList<>();
-        currentPath.add(new Point(startX, startY));
-        
-        // Check if the starting position instantly gives us an NPC or Plate
         int startState = plateMap[startX][startY] | npcMap[startX][startY];
+        List<Point> currentPath = new ArrayList<>();
+        
+        currentPath.add(new Point(startX, startY));
 
-        // Begin recursive backtracking
+        // Mulai mesin pencari
         backtrack(startX, startY, endX, endY, 0, startState, currentPath);
 
         if (!bestPath.isEmpty()) {
-            System.out.println("Optimal Stateful Path successfully found! All NPCs Collected.");
+            System.out.println("Jalur ditemukan dengan cost terbaik: " + bestCost);
         } else {
-            System.out.println("No valid path exists to collect all keys and reach the exit.");
+            System.out.println("Tidak ada jalur yang memungkinkan. Cek desain map (Maze1.txt) Anda.");
         }
         
         return bestPath;
     }
 
-    /**
-     * The core recursive backtracking function.
-     */
     private void backtrack(int x, int y, int endX, int endY, int currentCost, int stateMask, List<Point> currentPath) {
-        // PRUNING 1: If current path is already more expensive than the best found, abort.
+        // 1. BOUNDING: Jika sudah lebih mahal dari rekor pemenang, batalkan.
         if (currentCost >= bestCost) {
             return;
         }
-
-        // PRUNING 2: If we've visited this exact tile with the exact same items/keys, 
-        // but with a cheaper or equal cost, exploring further is redundant. Abort.
-        if (currentCost >= minCostVisited[x][y][stateMask]) {
-            return;
-        }
         
-        // Record our current best cost for this specific state at this location
-        minCostVisited[x][y][stateMask] = currentCost;
+        // 2. DP MEMOIZATION DENGAN HASHMAP
+        // Kita buat "Kunci Memori" dari koordinat + barang bawaan saat ini
+        String stateKey = x + "," + y + "," + stateMask;
+        
+        // Jika status ini sudah pernah dicapai dengan rute yang lebih murah, batalkan (Pruning)
+        if (dpMemo.containsKey(stateKey) && currentCost >= dpMemo.get(stateKey)) {
+            return; 
+        }
+        // Simpan rekor termurah yang baru
+        dpMemo.put(stateKey, currentCost);
 
-        // VICTORY CHECK
+        // 3. CEK KEMENANGAN
         if (x == endX && y == endY) {
             if ((stateMask & totalNpcMask) == totalNpcMask) {
-                // We reached the end with all NPCs at a lower cost than before
                 bestCost = currentCost;
                 bestPath = new ArrayList<>(currentPath); 
             }
-            return; // Exit this branch
+            return;
         }
 
         int[] dx = {0, 0, 1, -1};
         int[] dy = {1, -1, 0, 0};
 
-        // Explore all 4 directions
+        // 4. EKSPLORASI BACKTRACKING (DO - RECURSE - UNDO)
         for (int i = 0; i < 4; i++) {
             int nx = x + dx[i];
             int ny = y + dy[i];
 
             if (nx >= 0 && nx < rows && ny >= 0 && ny < cols && costMap[nx][ny] != -1) {
                 
-                // 1. Check if Gate is locked
+                // Cek apakah punya kunci untuk lewat gerbang
                 int requiredGate = gateMap[nx][ny];
                 if (requiredGate != 0 && (stateMask & requiredGate) == 0) {
-                    continue; 
+                    continue; // Jalan ditutup, tidak punya kunci!
                 }
 
-                // 2. Prepare next states
                 int nextStateMask = stateMask | plateMap[nx][ny] | npcMap[nx][ny];
                 int nextCost = currentCost + costMap[nx][ny];
 
-                // 3. DO: Add to path
+                // DO: Melangkah
                 currentPath.add(new Point(nx, ny));
-                
-                // 4. RECURSE
+
+                // RECURSE: Cari jalan lebih dalam
                 backtrack(nx, ny, endX, endY, nextCost, nextStateMask, currentPath);
-                
-                // 5. UNDO: Backtrack by removing the last point added
+
+                // UNDO: Mundur untuk coba arah lain
                 currentPath.remove(currentPath.size() - 1);
             }
         }
