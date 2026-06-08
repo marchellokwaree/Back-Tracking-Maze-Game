@@ -4,9 +4,11 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
+import java.util.Set;
 
 public class BacktrackInstantSolved {
 
@@ -16,21 +18,29 @@ public class BacktrackInstantSolved {
     private int[][] npcMap;
     private int rows;
     private int cols;
-    
-    private int totalNpcMask = 0; 
-    private int maxStates = 1;    
 
-    // --- STRUKTUR DATA KHUSUS DYNAMIC PROGRAMMING ---
-    private int[][][] memo;             // Menyimpan hasil sub-masalah (Memoization)
-    private boolean[][][] inPath;       // Mencegah siklus tak berujung (Cycle prevention)
-    
-    // Array untuk merekonstruksi jalur (karena DP murni tidak mencatat List saat rekursi)
-    private int[][][] nextMoveX;
-    private int[][][] nextMoveY;
-    private int[][][] nextMoveState;
+    // Item registries
+    private List<Integer> allNpcIds;
 
-    // Nilai representasi tak terhingga (agar tidak overflow saat dijumlahkan)
+    // Nilai representasi tak terhingga
     private final int INF = Integer.MAX_VALUE / 2;
+
+    // --- STRUKTUR DATA DP ---
+    // Key = "x,y|npc1,npc2,...|plate1,plate2,..." (snapshot lengkap, bukan bitmask)
+    // Value = biaya minimum dari titik tersebut ke tujuan
+    private Map<String, Integer> memo;
+
+    // Untuk rekonstruksi jalur: key yang sama, value = "nx,ny" langkah terbaik
+    private Map<String, String> nextMove;
+
+    // Set untuk mencegah siklus dalam SATU rantai rekursi
+    // Key = "x,y|collectedNpcs|collectedPlates" — unik per konteks
+    private Set<String> inPath;
+
+    // Koleksi item pada jalur rekursi saat ini (dimodifikasi + di-undo)
+    private Set<Integer> collectedNpcs;
+    private Set<Integer> collectedPlates;
+    private Set<Integer> openedGates;
 
     public static class Point {
         public int x, y;
@@ -59,19 +69,20 @@ public class BacktrackInstantSolved {
         rows = rowList.size();
         if (rows > 0) {
             cols = rowList.get(0).length;
-            costMap = new int[rows][cols];
+            costMap  = new int[rows][cols];
             plateMap = new int[rows][cols];
-            gateMap = new int[rows][cols];
-            npcMap = new int[rows][cols];
+            gateMap  = new int[rows][cols];
+            npcMap   = new int[rows][cols];
 
-            int currentBit = 0; 
-            Map<Integer, Integer> plateBits = new HashMap<>();
+            allNpcIds   = new ArrayList<>();
+            Map<Integer, Boolean> seenPlate = new HashMap<>();
+            int npcCounter = 1;
 
             for (int r = 0; r < rows; r++) {
                 String[] tokens = rowList.get(r);
                 for (int c = 0; c < cols; c++) {
                     String t = tokens[c];
-                    
+
                     if (t.equals("1")) {
                         costMap[r][c] = -1;
                     } else if (t.equals("F")) {
@@ -81,57 +92,44 @@ public class BacktrackInstantSolved {
                     } else {
                         costMap[r][c] = 1;
                         if (t.equals("N")) {
-                            int bit = (1 << currentBit++);
-                            npcMap[r][c] = bit;
-                            totalNpcMask |= bit;
-                        }
-                        else if (t.startsWith("P") && t.length() > 1) {
+                            int id = npcCounter++;
+                            npcMap[r][c] = id;
+                            allNpcIds.add(id);
+                        } else if (t.startsWith("P") && t.length() > 1) {
                             try {
                                 int id = Integer.parseInt(t.substring(1));
-                                if (!plateBits.containsKey(id)) plateBits.put(id, 1 << currentBit++);
-                                plateMap[r][c] = plateBits.get(id);
+                                plateMap[r][c] = id;
+                                if (!seenPlate.containsKey(id)) seenPlate.put(id, true);
                             } catch (NumberFormatException e) {}
-                        } 
-                        else if (t.startsWith("D") && t.length() > 1) {
+                        } else if (t.startsWith("D") && t.length() > 1) {
                             try {
                                 int id = Integer.parseInt(t.substring(1));
-                                if (!plateBits.containsKey(id)) plateBits.put(id, 1 << currentBit++);
-                                gateMap[r][c] = plateBits.get(id);
+                                gateMap[r][c] = id;
                             } catch (NumberFormatException e) {}
                         }
                     }
                 }
             }
-            maxStates = 1 << currentBit; 
         }
     }
 
     public List<Point> solve(int startX, int startY, int endX, int endY) {
         if (costMap == null) return new ArrayList<>();
 
-        // Inisialisasi memori DP
-        memo = new int[rows][cols][maxStates];
-        inPath = new boolean[rows][cols][maxStates];
-        nextMoveX = new int[rows][cols][maxStates];
-        nextMoveY = new int[rows][cols][maxStates];
-        nextMoveState = new int[rows][cols][maxStates];
+        memo     = new HashMap<>();
+        nextMove = new HashMap<>();
+        inPath   = new HashSet<>();
 
-        for (int r = 0; r < rows; r++) {
-            for (int c = 0; c < cols; c++) {
-                for (int s = 0; s < maxStates; s++) {
-                    memo[r][c][s] = -1; // -1 berarti belum dihitung
-                }
-            }
-        }
+        collectedNpcs   = new HashSet<>();
+        collectedPlates = new HashSet<>();
+        openedGates     = new HashSet<>();
 
-        int startState = plateMap[startX][startY] | npcMap[startX][startY];
+        collectItemAt(startX, startY);
 
-        // Eksekusi fungsi DP
-        int optimalCost = dpGetMinCost(startX, startY, endX, endY, startState);
+        int optimalCost = dpGetMinCost(startX, startY, endX, endY);
 
         List<Point> optimalPath = new ArrayList<>();
 
-        // Jika hasilnya INF, berarti tidak ada jalan valid
         if (optimalCost >= INF) {
             System.out.println("Tidak ada jalur valid untuk mencapai tujuan.");
             return optimalPath;
@@ -140,18 +138,30 @@ public class BacktrackInstantSolved {
         System.out.println("Jalur DP optimal ditemukan dengan total biaya: " + optimalCost);
 
         // Rekonstruksi jalur dari memori DP (Forward tracking)
-        int currX = startX, currY = startY, currState = startState;
+        // Kita perlu replay koleksi item saat rekonstruksi agar kunci memo cocok
+        Set<Integer> replayNpcs   = new HashSet<>(collectedNpcs);
+        Set<Integer> replayPlates = new HashSet<>(collectedPlates);
+        Set<Integer> replayGates  = new HashSet<>(openedGates);
+
+        int currX = startX, currY = startY;
         optimalPath.add(new Point(currX, currY));
 
         while (currX != endX || currY != endY) {
-            int nx = nextMoveX[currX][currY][currState];
-            int ny = nextMoveY[currX][currY][currState];
-            int nState = nextMoveState[currX][currY][currState];
+            String key = makeKey(currX, currY, replayNpcs, replayPlates);
+            String best = nextMove.get(key);
+            if (best == null) break;
+
+            String[] parts = best.split(",");
+            int nx = Integer.parseInt(parts[0]);
+            int ny = Integer.parseInt(parts[1]);
+
+            // Replay item collection untuk maju ke langkah berikutnya
+            if (npcMap[nx][ny] != 0)   replayNpcs.add(npcMap[nx][ny]);
+            if (plateMap[nx][ny] != 0) { replayPlates.add(plateMap[nx][ny]); replayGates.add(plateMap[nx][ny]); }
 
             optimalPath.add(new Point(nx, ny));
             currX = nx;
             currY = ny;
-            currState = nState;
         }
 
         return optimalPath;
@@ -159,71 +169,116 @@ public class BacktrackInstantSolved {
 
     /**
      * FUNGSI DYNAMIC PROGRAMMING MURNI (Top-Down / Memoization)
-     * Mengembalikan "Total Biaya Minimal" dari titik (x,y) menuju titik akhir.
+     *
+     * Kunci memo = (x, y, set NPC terkumpul, set plate terkumpul).
+     * Ini menggantikan bitmask state mask — setiap kombinasi unik item yang dikumpulkan
+     * diperlakukan sebagai submasalah yang berbeda, persis seperti sebelumnya,
+     * tapi tanpa enkoding bitmask.
      */
-    private int dpGetMinCost(int x, int y, int endX, int endY, int stateMask) {
-        // 1. BASE CASE (Kondisi Berhenti)
+    private int dpGetMinCost(int x, int y, int endX, int endY) {
+        // 1. BASE CASE
         if (x == endX && y == endY) {
-            if ((stateMask & totalNpcMask) == totalNpcMask) {
-                return 0; // Sampai di tujuan dengan syarat lengkap, biaya sisa = 0
-            } else {
-                return INF; // Sampai di tujuan tapi NPC kurang = Jalur tidak valid
-            }
+            return collectedNpcs.containsAll(allNpcIds) ? 0 : INF;
         }
 
-        // 2. MEMOIZATION CHECK (Jika sub-masalah ini sudah pernah dihitung, langsung return)
-        if (memo[x][y][stateMask] != -1) {
-            return memo[x][y][stateMask];
+        // 2. MEMOIZATION CHECK — kunci menyertakan snapshot item yang sudah dikumpulkan
+        String key = makeKey(x, y, collectedNpcs, collectedPlates);
+        if (memo.containsKey(key)) {
+            return memo.get(key);
         }
 
-        // Tandai kotak ini sedang dikunjungi dalam rekursi saat ini untuk mencegah siklus (loop)
-        inPath[x][y][stateMask] = true;
+        // Tandai (x,y,konteks) ini sedang dalam rantai rekursi aktif
+        inPath.add(key);
 
         int minSubCost = INF;
-        int bestNx = -1, bestNy = -1, bestNState = -1;
+        String bestNext = null;
 
         int[] dx = {0, 0, 1, -1};
         int[] dy = {1, -1, 0, 0};
 
-        // 3. PERSAMAAN REKURSIF (Hitung semua cabang, pilih yang termurah)
+        // 3. PERSAMAAN REKURSIF
         for (int i = 0; i < 4; i++) {
             int nx = x + dx[i];
             int ny = y + dy[i];
 
-            if (nx >= 0 && nx < rows && ny >= 0 && ny < cols && costMap[nx][ny] != -1) {
-                int requiredGate = gateMap[nx][ny];
-                if (requiredGate != 0 && (stateMask & requiredGate) == 0) continue;
+            if (nx < 0 || nx >= rows || ny < 0 || ny >= cols) continue;
+            if (costMap[nx][ny] == -1) continue;
 
-                int nextStateMask = stateMask | plateMap[nx][ny] | npcMap[nx][ny];
+            // Cek gate
+            int requiredGate = gateMap[nx][ny];
+            if (requiredGate != 0 && !openedGates.contains(requiredGate)) continue;
 
-                // Cegah kembali ke kotak yang sedang diproses di rantai rekursi ini
-                if (!inPath[nx][ny][nextStateMask]) {
-                    
-                    // Rekursi untuk mencari biaya dari kotak selanjutnya ke tujuan akhir
-                    int costFromNextNode = dpGetMinCost(nx, ny, endX, endY, nextStateMask);
-                    
-                    if (costFromNextNode != INF) {
-                        // Persamaan DP: Biaya Total = Biaya melangkah ke (nx,ny) + Biaya dari (nx,ny) ke akhir
-                        int totalCost = costMap[nx][ny] + costFromNextNode;
-                        
-                        if (totalCost < minSubCost) {
-                            minSubCost = totalCost;
-                            bestNx = nx; bestNy = ny; bestNState = nextStateMask;
-                        }
+            // Kumpulkan item di (nx,ny) sementara
+            boolean newNpc   = collectNpcAt(nx, ny);
+            boolean newPlate = collectPlateAt(nx, ny);
+            boolean newGate  = openGateIfPlate(nx, ny);
+
+            // Cek siklus dengan kunci konteks BARU (setelah item dikumpulkan)
+            String nextKey = makeKey(nx, ny, collectedNpcs, collectedPlates);
+            if (!inPath.contains(nextKey)) {
+                int costFromNext = dpGetMinCost(nx, ny, endX, endY);
+
+                if (costFromNext != INF) {
+                    int totalCost = costMap[nx][ny] + costFromNext;
+                    if (totalCost < minSubCost) {
+                        minSubCost = totalCost;
+                        bestNext = nx + "," + ny;
                     }
                 }
             }
+
+            // UNDO item collection
+            if (newNpc)   undoNpcAt(nx, ny);
+            if (newPlate) undoPlateAt(nx, ny);
+            if (newGate)  undoGate(nx, ny);
         }
 
-        // 4. UNDO STATE & SIMPAN HASIL KE MEMORI
-        inPath[x][y][stateMask] = false;
-        memo[x][y][stateMask] = minSubCost;
-
-        // 5. SIMPAN ARAH JALUR TERBAIK (Untuk rekonstruksi nanti)
-        nextMoveX[x][y][stateMask] = bestNx;
-        nextMoveY[x][y][stateMask] = bestNy;
-        nextMoveState[x][y][stateMask] = bestNState;
+        // 4. Hapus dari inPath, simpan ke memo
+        inPath.remove(key);
+        memo.put(key, minSubCost);
+        if (bestNext != null) nextMove.put(key, bestNext);
 
         return minSubCost;
     }
+
+    /**
+     * Membuat kunci unik untuk submasalah (x, y, npc dikumpulkan, plate dikumpulkan).
+     * Menggantikan integer bitmask dengan representasi string dari Set.
+     * Sorted agar urutan insert tidak mempengaruhi kesamaan kunci.
+     */
+    private String makeKey(int x, int y, Set<Integer> npcs, Set<Integer> plates) {
+        List<Integer> sortedNpcs   = new ArrayList<>(npcs);
+        List<Integer> sortedPlates = new ArrayList<>(plates);
+        java.util.Collections.sort(sortedNpcs);
+        java.util.Collections.sort(sortedPlates);
+        return x + "," + y + "|" + sortedNpcs + "|" + sortedPlates;
+    }
+
+    private void collectItemAt(int r, int c) {
+        collectNpcAt(r, c);
+        collectPlateAt(r, c);
+        openGateIfPlate(r, c);
+    }
+
+    private boolean collectNpcAt(int r, int c) {
+        int id = npcMap[r][c];
+        if (id != 0 && !collectedNpcs.contains(id)) { collectedNpcs.add(id); return true; }
+        return false;
+    }
+
+    private boolean collectPlateAt(int r, int c) {
+        int id = plateMap[r][c];
+        if (id != 0 && !collectedPlates.contains(id)) { collectedPlates.add(id); return true; }
+        return false;
+    }
+
+    private boolean openGateIfPlate(int r, int c) {
+        int id = plateMap[r][c];
+        if (id != 0 && collectedPlates.contains(id) && !openedGates.contains(id)) { openedGates.add(id); return true; }
+        return false;
+    }
+
+    private void undoNpcAt(int r, int c)   { collectedNpcs.remove(npcMap[r][c]); }
+    private void undoPlateAt(int r, int c) { collectedPlates.remove(plateMap[r][c]); }
+    private void undoGate(int r, int c)    { openedGates.remove(plateMap[r][c]); }
 }

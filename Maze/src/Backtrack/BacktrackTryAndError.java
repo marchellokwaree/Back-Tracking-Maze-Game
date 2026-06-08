@@ -23,14 +23,18 @@ public class BacktrackTryAndError {
 
     // --- AI MEMORY ---
     private Map<String, Point> discoveredGates;
-    private Set<String> pendingGatesToVisit; 
+    private Set<String> pendingGatesToVisit;
     private Point rememberedExit = null;
     private Point activeGoal = null;
 
     // --- MINECRAFT COBBLESTONE LOGIC ---
-    private boolean[][] sealed; 
-    private boolean[][] leadsToValuable; 
-    private boolean[][] visitedInEpoch;
+    private boolean[][] sealed;
+    private boolean[][] leadsToValuable;
+
+    // Visited cells tracked as a persistent Set of "r,c" strings.
+    // No epoch resets — cells simply remain visited or are re-evaluated
+    // based on whether the path stack contains them (cycle prevention via currentStack).
+    private Set<String> visitedCells;
 
     // Execution limits to prevent stack overflow
     private int steps = 0;
@@ -79,22 +83,27 @@ public class BacktrackTryAndError {
 
         List<Point> journey = new ArrayList<>();
         List<Point> currentStack = new ArrayList<>();
-        
+
         discoveredGates = new HashMap<>();
         pendingGatesToVisit = new HashSet<>();
         rememberedExit = null;
         activeGoal = null;
         collectedNPCs = 0;
         steps = 0;
-        
+
         sealed = new boolean[rows][cols];
         leadsToValuable = new boolean[rows][cols];
-        visitedInEpoch = new boolean[rows][cols];
+
+        // Persistent visited set: tracks cells visited across the entire journey.
+        // Unlike the previous epoch-based boolean[][] array, this Set is never wiped
+        // — cells are removed from it only when we physically backtrack off them,
+        // preventing revisits within the current active path (cycle prevention).
+        visitedCells = new HashSet<>();
 
         System.out.println("Starting Simulation: Human-like Trial & Error (Recursive Version)...");
-        
+
         explore(startX, startY, journey, currentStack);
-        
+
         return journey;
     }
 
@@ -106,10 +115,11 @@ public class BacktrackTryAndError {
         if (steps >= MAX_STEPS) return false;
         steps++;
 
+        String cellKey = r + "," + c;
         Point curr = new Point(r, c);
         journey.add(curr);
         currentStack.add(curr);
-        visitedInEpoch[r][c] = true;
+        visitedCells.add(cellKey);
 
         // 1. Goal & Gate Arrival Check
         if (activeGoal != null && r == activeGoal.x && c == activeGoal.y) {
@@ -132,15 +142,15 @@ public class BacktrackTryAndError {
 
         if (tile.equals("N")) {
             collectedNPCs++;
-            map[r][c] = "0"; 
+            map[r][c] = "0";
             stateChanged = true;
-            
+
             if (collectedNPCs == totalNPCs && rememberedExit != null) {
                 activeGoal = rememberedExit;
             }
         } else if (tile.startsWith("P") && tile.length() > 1) {
             String id = tile.substring(1);
-            map[r][c] = "0"; 
+            map[r][c] = "0";
             if (openGate(id)) {
                 stateChanged = true;
                 if (discoveredGates.containsKey(id)) {
@@ -149,16 +159,21 @@ public class BacktrackTryAndError {
             }
         } else if (tile.equals("G")) {
             if (collectedNPCs == totalNPCs) {
-                return true; 
+                return true;
             }
         }
 
-        // Memory Wipe
+        // When the world state changes (NPC collected, gate opened), allow revisiting
+        // cells that were previously skipped. We achieve this by removing from visitedCells
+        // all cells NOT on the current active path — making them explorable again.
+        // This replaces the old epoch-reset approach (wiping the entire boolean[][] and
+        // re-marking the current stack) with a targeted Set operation.
         if (stateChanged) {
-            visitedInEpoch = new boolean[rows][cols];
+            Set<String> activePathKeys = new HashSet<>();
             for (Point p : currentStack) {
-                visitedInEpoch[p.x][p.y] = true;
+                activePathKeys.add(p.x + "," + p.y);
             }
+            visitedCells.retainAll(activePathKeys);
         }
 
         // --- SCAN SURROUNDINGS (LOOK AHEAD) ---
@@ -191,9 +206,9 @@ public class BacktrackTryAndError {
             int nr = r + dr[i];
             int nc = c + dc[i];
 
-            if (isValid(nr, nc) && !visitedInEpoch[nr][nc]) {
+            if (isValid(nr, nc) && !visitedCells.contains(nr + "," + nc)) {
                 String nTile = map[nr][nc];
-                if (nTile.equals("G") && collectedNPCs < totalNPCs) continue; 
+                if (nTile.equals("G") && collectedNPCs < totalNPCs) continue;
 
                 if (nTile.equals("F") || nTile.equals("I")) trapNeighbors.add(i);
                 else safeNeighbors.add(i);
@@ -215,19 +230,17 @@ public class BacktrackTryAndError {
         for (int dir : allMoves) {
             int nr = r + dr[dir];
             int nc = c + dc[dir];
-            
-            // Re-check visited in case a state change in a previous branch wiped memory
-            if (isValid(nr, nc) && !visitedInEpoch[nr][nc]) {
+
+            if (isValid(nr, nc) && !visitedCells.contains(nr + "," + nc)) {
                 boolean escaped = explore(nr, nc, journey, currentStack);
                 if (escaped) return true;
-                
+
                 // If we didn't escape, we physically stepped back to this cell
                 journey.add(curr);
             }
         }
 
         // --- DEAD END COBBLESTONE LOGIC ---
-        // If we exhausted all options, this route is useless.
         boolean isSelfValuable = tile.equals("H") || tile.equals("G") || (tile.startsWith("D") && tile.length() > 1);
         if (!leadsToValuable[r][c] && !isSelfValuable) {
             sealed[r][c] = true;
@@ -241,7 +254,9 @@ public class BacktrackTryAndError {
             activeGoal = rememberedExit;
         }
 
-        // Ascending back up the recursive stack
+        // Ascending back up the recursive stack — remove this cell from visited
+        // so that sibling branches (other paths) can enter it if needed.
+        visitedCells.remove(cellKey);
         currentStack.remove(currentStack.size() - 1);
         return false;
     }
@@ -258,11 +273,11 @@ public class BacktrackTryAndError {
 
     private boolean isValid(int r, int c) {
         if (r < 0 || r >= rows || c < 0 || c >= cols) return false;
-        if (sealed[r][c]) return false; 
-        
+        if (sealed[r][c]) return false;
+
         String t = map[r][c];
-        if (t.equals("1")) return false; 
-        if (t.startsWith("D") && t.length() > 1) return false; 
+        if (t.equals("1")) return false;
+        if (t.startsWith("D") && t.length() > 1) return false;
         return true;
     }
 
@@ -272,7 +287,7 @@ public class BacktrackTryAndError {
         for (int r = 0; r < rows; r++) {
             for (int c = 0; c < cols; c++) {
                 if (map[r][c].equals(targetGate)) {
-                    map[r][c] = "0"; 
+                    map[r][c] = "0";
                     opened = true;
                 }
             }
