@@ -288,7 +288,7 @@ public class HUDPanel extends JPanel {
 		}
 
 		// Kirim angka mode ke GamePanel
-		GamePanel gamePanel = new GamePanel(backtrackMode);
+		GamePanel gamePanel = new GamePanel(parentFrame, backtrackMode);
 		parentFrame.setContentPane(gamePanel);
 		parentFrame.revalidate();
 		parentFrame.pack();

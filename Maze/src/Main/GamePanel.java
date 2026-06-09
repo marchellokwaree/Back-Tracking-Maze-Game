@@ -25,6 +25,8 @@ import Backtrack.BacktrackInstantSolved;
 import Backtrack.BacktrackTryAndError;
 
 import java.awt.Rectangle;
+import javax.swing.SwingUtilities;
+import javax.swing.JFrame;
 
 public class GamePanel extends JPanel implements Runnable {
 
@@ -67,10 +69,12 @@ public class GamePanel extends JPanel implements Runnable {
     public int currentPathIndex = 0;
     public boolean autoSolveActive;// Set to true to instantly auto-walk to the finish line
     public int backtrackMode = 0;
+    private final JFrame parentFrame;
+    private boolean endGameShown = false;
     // ---------------------------
 
-    public GamePanel(int backtrackMode) {
-
+    public GamePanel(JFrame parentFrame, int backtrackMode) {
+        this.parentFrame = parentFrame;
         this.backtrackMode = backtrackMode;
         if (backtrackMode > 0) {
             this.autoSolveActive = true; // Aktifkan autosolve jika mode 1 atau 2
@@ -81,7 +85,6 @@ public class GamePanel extends JPanel implements Runnable {
         this.setPreferredSize(new Dimension(screenWidth, screenHeight));
         this.setBackground(Color.BLACK);
         this.setDoubleBuffered(true);
-
 
         this.addKeyListener(keyH);
         this.setFocusable(true);
@@ -111,8 +114,6 @@ public class GamePanel extends JPanel implements Runnable {
         }
 
         this.timer = new Timer(1000000); // Timer 100 detik (100.000 ms)
-        
-        
 
         for (int i = 0; i < maxWorldRow; i++) {
             for (int j = 0; j < maxWorldCol; j++) {
@@ -122,7 +123,7 @@ public class GamePanel extends JPanel implements Runnable {
                 if ("I".equals(map1[i][j])) {
                     obstacles.add(new IceTrap(j * tileSize, i * tileSize, tileSize, tileSize));
                 }
-            
+
                 if ("G".equals(map1[i][j])) {
                     obstacles.add(new Finish(j * tileSize, i * tileSize, tileSize, tileSize));
                 }
@@ -134,13 +135,13 @@ public class GamePanel extends JPanel implements Runnable {
                         String id = map1[i][j].substring(1); // Ambil ID setelah 'P'
                         PressurePlate plate = new PressurePlate(j * tileSize, i * tileSize, tileSize, tileSize, id);
                         obstacles.add(plate);
-                        
+
                     } else if (map1[i][j].charAt(0) == 'D') {
                         String id = map1[i][j].substring(1); // Ambil ID setelah 'G'
                         boolean aboveIsWall = (i - 1 >= 0 && "1".equals(map1[i - 1][j]));
                         Gate gate = new Gate(j * tileSize, i * tileSize, tileSize, tileSize, aboveIsWall, id);
                         obstacles.add(gate);
-                        
+
                     }
                 }
 
@@ -157,7 +158,7 @@ public class GamePanel extends JPanel implements Runnable {
         // --- AUTOSOLVE INITIALIZATION ---
         if (autoSolveActive) {
             String solvedPathFile = resolveMapFilePath(MAP_FILE_PATH);
-            
+
             // Cek mode mana yang dipilih
             if (backtrackMode == 1) {
                 solver1 = new BacktrackInstantSolved(solvedPathFile);
@@ -337,7 +338,7 @@ public class GamePanel extends JPanel implements Runnable {
     public void run() {
         double drawInterval = 1000000000 / 60;
         double delta = 0;
-        long lastTime = System.nanoTime(); 
+        long lastTime = System.nanoTime();
 
         while (gameThread != null) {
             long currentTime = System.nanoTime();
@@ -352,15 +353,11 @@ public class GamePanel extends JPanel implements Runnable {
 
             checkDamage();
             if (timer.isTimeUp()) {
-                gameThread = null; 
-                SwingUtilities.invokeLater(() -> {
-                    JOptionPane.showMessageDialog(this, "Time's Up! Game Over!", "Game Over",
-                            JOptionPane.INFORMATION_MESSAGE);
-                    System.exit(0); 
-                });
+                gameThread = null;
+                LoseGame();
             }
             try {
-                Thread.sleep(1000 / 60); 
+                Thread.sleep(1000 / 60);
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
@@ -381,7 +378,7 @@ public class GamePanel extends JPanel implements Runnable {
         if (timer != null) {
             timer.update();
         }
-        
+
         for (Obstacle obstacle : obstacles) {
             if (obstacle instanceof FireTrap) {
                 ((FireTrap) obstacle).update();
@@ -402,13 +399,14 @@ public class GamePanel extends JPanel implements Runnable {
                 ((HealPotion) obstacle).update();
             }
         }
-        
+
         // Update smooth camera after updating entities
         updateCamera();
     }
 
     private void updateCamera() {
-        if (player == null) return;
+        if (player == null)
+            return;
 
         double targetX = player.x - player.screenX;
         double targetY = player.y - player.screenY;
@@ -420,13 +418,17 @@ public class GamePanel extends JPanel implements Runnable {
     }
 
     private void clampCamera() {
-        if (cameraX < 0) cameraX = 0;
+        if (cameraX < 0)
+            cameraX = 0;
         double maxCamX = Math.max(0, worldWidth - screenWidth);
-        if (cameraX > maxCamX) cameraX = maxCamX;
+        if (cameraX > maxCamX)
+            cameraX = maxCamX;
 
-        if (cameraY < 0) cameraY = 0;
+        if (cameraY < 0)
+            cameraY = 0;
         double maxCamY = Math.max(0, worldHeight - screenHeight);
-        if (cameraY > maxCamY) cameraY = maxCamY;
+        if (cameraY > maxCamY)
+            cameraY = maxCamY;
     }
 
     public int getCameraXInt() {
@@ -656,9 +658,9 @@ public class GamePanel extends JPanel implements Runnable {
             }
         }
 
-        if (player != null){
-                player.draw(g2);
-                player.darah.draw(g2);
+        if (player != null) {
+            player.draw(g2);
+            player.darah.draw(g2);
         }
 
         if (timer != null) {
@@ -668,11 +670,47 @@ public class GamePanel extends JPanel implements Runnable {
         g2.dispose();
     }
 
+    protected void LoseGame() {
+        if (endGameShown) {
+            return;
+        }
+
+        endGameShown = true;
+        if (gameThread != null) {
+            gameThread = null;
+        }
+
+        int timeSpent = timer != null ? timer.getMaxTimeInSeconds() - timer.getCurrentTime() : 0;
+        System.out.println("Game Over! Displaying end game panel.");
+
+        SwingUtilities.invokeLater(() -> {
+            parentFrame.setContentPane(new EndGamePanel(parentFrame, false, timeSpent));
+            parentFrame.revalidate();
+            parentFrame.pack();
+            parentFrame.setLocationRelativeTo(null);
+        });
+    }
+
     protected void WinGame() {
+        if (endGameShown) {
+            return;
+        }
+
+        endGameShown = true;
+        if (gameThread != null) {
+            gameThread = null;
+        }
+
         int timeSpent = timer.getMaxTimeInSeconds() - timer.getCurrentTime();
         System.out.println("Congratulations! You've reached the exit!");
         System.out.println("Time spent: " + timeSpent + " seconds.");
-        System.exit(0); 
+
+        SwingUtilities.invokeLater(() -> {
+            parentFrame.setContentPane(new EndGamePanel(parentFrame, true, timeSpent));
+            parentFrame.revalidate();
+            parentFrame.pack();
+            parentFrame.setLocationRelativeTo(null);
+        });
     }
 
     protected void checkDamage() {
@@ -683,11 +721,15 @@ public class GamePanel extends JPanel implements Runnable {
                 Finish finish = (Finish) obstacle;
                 if (finish.collidesWith(player.x, player.y, tileSize)) {
                     // --- AUTOSOLVE WIN LOGIC OVERRIDE ---
-                    if (Key == 0) {
-                        System.out.println();
+                    if (Key <= 0) {
                         WinGame();
                     } else {
-                        System.out.println("You need to find all Red Hood to unlock the exit!");
+                        SwingUtilities.invokeLater(() -> {
+                            JOptionPane.showMessageDialog(this,
+                                    "You need to find all Red Hood to unlock the exit!",
+                                    "Exit Locked",
+                                    JOptionPane.INFORMATION_MESSAGE);
+                        });
                     }
                 }
             }
@@ -699,18 +741,18 @@ public class GamePanel extends JPanel implements Runnable {
                 // --- IMMUNITY REMOVED: Auto-solve can now take damage! ---
                 if (fireTrap.active && fireHitbox.intersects(player.getHitbox())
                         && player.damageCooldown == 0) {
-                    
+
                     player.darah.takeDamage(30);
-                    
+
                     if (player.darah.getCurrentHP() < 0) {
                         player.darah.update(0);
                     }
-                    player.damageCooldown = 60; 
+                    player.damageCooldown = 60;
 
                     System.out.println("Player hit by fire trap! HP: " + player.darah.getCurrentHP());
                     if (player.darah.getCurrentHP() <= 0) {
                         System.out.println("Game Over! Player has been defeated.");
-                        System.exit(0);
+                        LoseGame();
                     }
                 }
             }
@@ -723,7 +765,7 @@ public class GamePanel extends JPanel implements Runnable {
                     for (Obstacle o : obstacles) {
                         if (o instanceof Gate) {
                             Gate gate = (Gate) o;
-                            if (gate.ID.equals(pressurePlate.ID) && pressurePlate.activated) { 
+                            if (gate.ID.equals(pressurePlate.ID) && pressurePlate.activated) {
                                 gate.alrOpen = true;
                                 gate.open = true;
                                 gate.openGate();
@@ -738,18 +780,18 @@ public class GamePanel extends JPanel implements Runnable {
                 IceTrap iceTrap = (IceTrap) obstacle;
                 Rectangle iceHitbox = new Rectangle(iceTrap.x, iceTrap.y, tileSize, tileSize);
                 if (iceTrap.active && iceHitbox.intersects(player.getHitbox())) {
-                    player.applySlow(5); 
+                    player.applySlow(5);
                 }
             }
             if (obstacle instanceof HealPotion) {
                 HealPotion healPotion = (HealPotion) obstacle;
                 Rectangle healHitbox = new Rectangle(healPotion.x, healPotion.y, tileSize, tileSize);
                 if (healHitbox.intersects(player.getHitbox())) {
-                    player.darah.heal(50); 
+                    player.darah.heal(50);
                     if (player.darah.getCurrentHP() > 100) {
-                        player.darah.update(100); 
+                        player.darah.update(100);
                     }
-                    it.remove(); 
+                    it.remove();
                     System.out.println("Player consumed a heal potion! HP: " + player.darah.getCurrentHP());
                 }
             }
@@ -765,13 +807,15 @@ public class GamePanel extends JPanel implements Runnable {
                     continue;
                 }
 
-                Rectangle enemyHitbox = new Rectangle(redHood.x, redHood.y, redHood.hitbox.width,
+                Rectangle enemyHitbox = new Rectangle(
+                        redHood.x + redHood.hitbox.x,
+                        redHood.y + redHood.hitbox.y,
+                        redHood.hitbox.width,
                         redHood.hitbox.height);
                 if (enemyHitbox.intersects(player.getHitbox()) && !redHood.active) {
                     redHood.startDisappear();
                     System.out.println("you got a key ");
                     Key--;
-                    
                 }
             }
         }
