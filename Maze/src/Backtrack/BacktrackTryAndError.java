@@ -3,42 +3,25 @@ package Backtrack;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
-import java.util.Set;
-import Backtrack.BacktrackInstantSolved.Point;
 
 public class BacktrackTryAndError {
 
-    private String[][] map;
+    private int[][] costMap;
+    private int[][] plateMap;
+    private int[][] gateMap;
+    private int[][] npcMap;
     private int rows;
     private int cols;
-
-    private int totalNPCs = 0;
-    private int collectedNPCs = 0;
-
-    // --- AI MEMORY ---
-    private Map<String, Point> discoveredGates;
-    private Set<String> pendingGatesToVisit; 
-    private Point rememberedExit = null;
-    private Point activeGoal = null;
-
-    // --- MINECRAFT COBBLESTONE LOGIC ---
-    private boolean[][] sealed; 
-    private boolean[][] leadsToValuable; 
-    private boolean[][] visitedInEpoch;
-
-    // Execution limits to prevent stack overflow
-    private int steps = 0;
-    private final int MAX_STEPS = 50000;
-
-    // Directions: Up, Down, Left, Right
-    private final int[] dr = {-1, 1, 0, 0};
-    private final int[] dc = {0, 0, -1, 1};
+    
+    private int totalNpcMask = 0; 
+    private int bestCost;
+    
+    private Map<String, Integer> dpMemo;      
+    private List<BacktrackInstantSolved.Point> searchHistory;
 
     public BacktrackTryAndError(String filePath) {
         loadMaze(filePath);
@@ -53,239 +36,130 @@ public class BacktrackTryAndError {
                 rowList.add(line.split("\\s+"));
             }
         } catch (FileNotFoundException e) {
-            System.err.println("Maze file not found: " + e.getMessage());
+            System.err.println("File Maze tidak ditemukan: " + e.getMessage());
             return;
         }
 
         rows = rowList.size();
         if (rows > 0) {
             cols = rowList.get(0).length;
-            map = new String[rows][cols];
+            costMap = new int[rows][cols];
+            plateMap = new int[rows][cols];
+            gateMap = new int[rows][cols];
+            npcMap = new int[rows][cols];
+
+            int currentBit = 0; 
+            Map<Integer, Integer> plateBits = new HashMap<>();
 
             for (int r = 0; r < rows; r++) {
+                String[] tokens = rowList.get(r);
                 for (int c = 0; c < cols; c++) {
-                    map[r][c] = rowList.get(r)[c];
-                    if (map[r][c].equals("N")) {
-                        totalNPCs++;
-                    }
-                }
-            }
-        }
-    }
-
-    public List<Point> solve(int startX, int startY, int endX, int endY) {
-        if (map == null) return new ArrayList<>();
-
-        List<Point> journey = new ArrayList<>();
-        List<Point> currentStack = new ArrayList<>();
-        
-        discoveredGates = new HashMap<>();
-        pendingGatesToVisit = new HashSet<>();
-        rememberedExit = null;
-        activeGoal = null;
-        collectedNPCs = 0;
-        steps = 0;
-        
-        sealed = new boolean[rows][cols];
-        leadsToValuable = new boolean[rows][cols];
-        visitedInEpoch = new boolean[rows][cols];
-
-        System.out.println("Starting Simulation: Human-like Trial & Error (Recursive Version)...");
-        
-        explore(startX, startY, journey, currentStack);
-        
-        return journey;
-    }
-
-    /**
-     * The recursive method that simulates human wandering.
-     * Returns true if the exit was successfully found to unwind the recursion.
-     */
-    private boolean explore(int r, int c, List<Point> journey, List<Point> currentStack) {
-        if (steps >= MAX_STEPS) return false;
-        steps++;
-
-        Point curr = new Point(r, c);
-        journey.add(curr);
-        currentStack.add(curr);
-        visitedInEpoch[r][c] = true;
-
-        // 1. Goal & Gate Arrival Check
-        if (activeGoal != null && r == activeGoal.x && c == activeGoal.y) {
-            System.out.println("AI: Reached my target location! Resuming local exploration.");
-            activeGoal = null;
-        }
-
-        List<String> gatesReached = new ArrayList<>();
-        for (Map.Entry<String, Point> entry : discoveredGates.entrySet()) {
-            if (entry.getValue().x == r && entry.getValue().y == c && pendingGatesToVisit.contains(entry.getKey())) {
-                gatesReached.add(entry.getKey());
-            }
-        }
-        for (String gateId : gatesReached) {
-            pendingGatesToVisit.remove(gateId);
-            System.out.println("AI: I arrived at the opened Gate " + gateId + "! Time to see what's hidden inside.");
-        }
-
-        // --- WORLD INTERACTIONS ---
-        String tile = map[r][c];
-        boolean stateChanged = false;
-
-        if (tile.equals("N")) {
-            collectedNPCs++;
-            map[r][c] = "0"; 
-            stateChanged = true;
-            System.out.println("AI: Rescued a Red Hood / Key! (" + collectedNPCs + "/" + totalNPCs + ")");
-            
-            if (collectedNPCs == totalNPCs && rememberedExit != null) {
-                activeGoal = rememberedExit;
-                System.out.println("AI: That's all keys! I remember the portal. Making a run for it!");
-            }
-        } else if (tile.startsWith("P") && tile.length() > 1) {
-            String id = tile.substring(1);
-            map[r][c] = "0"; 
-            if (openGate(id)) {
-                stateChanged = true;
-                if (discoveredGates.containsKey(id)) {
-                    pendingGatesToVisit.add(id);
-                    System.out.println("AI: Pressed plate " + id + ". Gate opened! I'll check it out later.");
-                }
-            }
-        } else if (tile.equals("G")) {
-            if (collectedNPCs == totalNPCs) {
-                System.out.println("AI: Escaped the maze!");
-                return true; 
-            }
-        }
-
-        // Memory Wipe
-        if (stateChanged) {
-            visitedInEpoch = new boolean[rows][cols];
-            for (Point p : currentStack) {
-                visitedInEpoch[p.x][p.y] = true;
-            }
-        }
-
-        // --- SCAN SURROUNDINGS (LOOK AHEAD) ---
-        for (int i = 0; i < 4; i++) {
-            int nr = r + dr[i];
-            int nc = c + dc[i];
-            if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
-                String lookTile = map[nr][nc];
-                if ((lookTile.startsWith("D") && lookTile.length() > 1) || lookTile.equals("G") || lookTile.equals("H")) {
-                    for (Point p : currentStack) {
-                        leadsToValuable[p.x][p.y] = true;
-                    }
-                    if (lookTile.startsWith("D")) {
-                        String id = lookTile.substring(1);
-                        if (!discoveredGates.containsKey(id)) {
-                            discoveredGates.put(id, new Point(nr, nc));
-                            System.out.println("AI: Found locked gate " + id + ".");
+                    String t = tokens[c];
+                    
+                    if (t.equals("1")) {
+                        costMap[r][c] = -1;
+                    } else if (t.equals("F")) {
+                        costMap[r][c] = 10;
+                    } else if (t.equals("I")) {
+                        costMap[r][c] = 5;
+                    } else {
+                        costMap[r][c] = 1;
+                        if (t.equals("N")) {
+                            int bit = (1 << currentBit++);
+                            npcMap[r][c] = bit;
+                            totalNpcMask |= bit;
                         }
-                    } else if (lookTile.equals("G") && rememberedExit == null) {
-                        rememberedExit = new Point(nr, nc);
-                        System.out.println("AI: Found exit! But I need keys. Memorizing.");
+                        else if (t.startsWith("P") && t.length() > 1) {
+                            try {
+                                int id = Integer.parseInt(t.substring(1));
+                                if (!plateBits.containsKey(id)) plateBits.put(id, 1 << currentBit++);
+                                plateMap[r][c] = plateBits.get(id);
+                            } catch (NumberFormatException e) {}
+                        } 
+                        else if (t.startsWith("D") && t.length() > 1) {
+                            try {
+                                int id = Integer.parseInt(t.substring(1));
+                                if (!plateBits.containsKey(id)) plateBits.put(id, 1 << currentBit++);
+                                gateMap[r][c] = plateBits.get(id);
+                            } catch (NumberFormatException e) {}
+                        }
                     }
                 }
             }
         }
+    }
 
-        // --- EVALUATE MOVEMENTS ---
-        List<Integer> safeNeighbors = new ArrayList<>();
-        List<Integer> trapNeighbors = new ArrayList<>();
+    public List<BacktrackInstantSolved.Point> solve(int startX, int startY, int endX, int endY) {
+        if (costMap == null) return new ArrayList<>();
+
+        bestCost = Integer.MAX_VALUE;
+        dpMemo = new HashMap<>(); 
+        searchHistory = new ArrayList<>(); 
+
+        int startState = plateMap[startX][startY] | npcMap[startX][startY];
+        
+        searchHistory.add(new BacktrackInstantSolved.Point(startX, startY));
+        backtrack(startX, startY, endX, endY, 0, startState);
+
+        return searchHistory; 
+    }
+
+    private void backtrack(int x, int y, int endX, int endY, int currentCost, int stateMask) {
+        if (currentCost >= bestCost) {
+            return;
+        }
+        
+        String stateKey = x + "," + y + "," + stateMask;
+        // Pengecekan aman di awal
+        if (dpMemo.containsKey(stateKey) && currentCost > dpMemo.get(stateKey)) {
+            return; 
+        }
+        dpMemo.put(stateKey, currentCost);
+
+        if (x == endX && y == endY) {
+            if ((stateMask & totalNpcMask) == totalNpcMask) {
+                bestCost = currentCost;
+            }
+            return;
+        }
+
+        int[] dx = {0, 0, 1, -1};
+        int[] dy = {1, -1, 0, 0};
 
         for (int i = 0; i < 4; i++) {
-            int nr = r + dr[i];
-            int nc = c + dc[i];
+            int nx = x + dx[i];
+            int ny = y + dy[i];
 
-            if (isValid(nr, nc) && !visitedInEpoch[nr][nc]) {
-                String nTile = map[nr][nc];
-                if (nTile.equals("G") && collectedNPCs < totalNPCs) continue; 
-
-                if (nTile.equals("F") || nTile.equals("I")) trapNeighbors.add(i);
-                else safeNeighbors.add(i);
-            }
-        }
-
-        if (activeGoal != null) {
-            sortDirectionsByGoal(safeNeighbors, curr);
-            sortDirectionsByGoal(trapNeighbors, curr);
-        } else {
-            Collections.shuffle(safeNeighbors);
-            Collections.shuffle(trapNeighbors);
-        }
-
-        List<Integer> allMoves = new ArrayList<>(safeNeighbors);
-        allMoves.addAll(trapNeighbors);
-
-        // --- EXECUTE STEPS RECURSIVELY ---
-        for (int dir : allMoves) {
-            int nr = r + dr[dir];
-            int nc = c + dc[dir];
-            
-            // Re-check visited in case a state change in a previous branch wiped memory
-            if (isValid(nr, nc) && !visitedInEpoch[nr][nc]) {
-                boolean escaped = explore(nr, nc, journey, currentStack);
-                if (escaped) return true;
+            if (nx >= 0 && nx < rows && ny >= 0 && ny < cols && costMap[nx][ny] != -1) {
                 
-                // If we didn't escape, we physically stepped back to this cell
-                journey.add(curr);
-            }
-        }
-
-        // --- DEAD END COBBLESTONE LOGIC ---
-        // If we exhausted all options, this route is useless.
-        boolean isSelfValuable = tile.equals("H") || tile.equals("G") || (tile.startsWith("D") && tile.length() > 1);
-        if (!leadsToValuable[r][c] && !isSelfValuable) {
-            sealed[r][c] = true;
-        }
-
-        // Since we are backtracking, does this trigger a new goal?
-        if (activeGoal == null && !pendingGatesToVisit.isEmpty()) {
-            String targetGateId = pendingGatesToVisit.iterator().next();
-            activeGoal = discoveredGates.get(targetGateId);
-            System.out.println("AI: Dead end! Routing back to the open Gate " + targetGateId + "!");
-        } else if (activeGoal == null && collectedNPCs == totalNPCs && rememberedExit != null) {
-            activeGoal = rememberedExit;
-            System.out.println("AI: Dead end, but I have keys! Run to portal!");
-        }
-
-        // Ascending back up the recursive stack
-        currentStack.remove(currentStack.size() - 1);
-        return false;
-    }
-
-    private void sortDirectionsByGoal(List<Integer> dirs, Point curr) {
-        dirs.sort((d1, d2) -> {
-            int r1 = curr.x + dr[d1], c1 = curr.y + dc[d1];
-            int r2 = curr.x + dr[d2], c2 = curr.y + dc[d2];
-            int dist1 = Math.abs(r1 - activeGoal.x) + Math.abs(c1 - activeGoal.y);
-            int dist2 = Math.abs(r2 - activeGoal.x) + Math.abs(c2 - activeGoal.y);
-            return Integer.compare(dist1, dist2);
-        });
-    }
-
-    private boolean isValid(int r, int c) {
-        if (r < 0 || r >= rows || c < 0 || c >= cols) return false;
-        if (sealed[r][c]) return false; 
-        
-        String t = map[r][c];
-        if (t.equals("1")) return false; 
-        if (t.startsWith("D") && t.length() > 1) return false; 
-        return true;
-    }
-
-    private boolean openGate(String id) {
-        String targetGate = "D" + id;
-        boolean opened = false;
-        for (int r = 0; r < rows; r++) {
-            for (int c = 0; c < cols; c++) {
-                if (map[r][c].equals(targetGate)) {
-                    map[r][c] = "0"; 
-                    opened = true;
+                int requiredGate = gateMap[nx][ny];
+                if (requiredGate != 0 && (stateMask & requiredGate) == 0) {
+                    continue; 
                 }
+
+                int nextStateMask = stateMask | plateMap[nx][ny] | npcMap[nx][ny];
+                int nextCost = currentCost + costMap[nx][ny];
+
+                // --- FITUR LOOK AHEAD (PENCEGAH PING-PONG / STUTTER) ---
+                if (nextCost >= bestCost) {
+                    continue; // Rute ini sudah pasti kalah, jangan divisualisasikan
+                }
+                
+                String nextStateKey = nx + "," + ny + "," + nextStateMask;
+                if (dpMemo.containsKey(nextStateKey) && nextCost >= dpMemo.get(nextStateKey)) {
+                    continue; // Kotak ini sudah pernah dikunjungi dengan rute lebih baik, atau ini kotak asal kita. LEWATI!
+                }
+                // -------------------------------------------------------
+
+                // DO: Catat langkah masuk
+                searchHistory.add(new BacktrackInstantSolved.Point(nx, ny));
+
+                // RECURSE: Cek lebih dalam
+                backtrack(nx, ny, endX, endY, nextCost, nextStateMask);
+
+                // UNDO: Catat langkah keluar (Mundur dari jalan buntu)
+                searchHistory.add(new BacktrackInstantSolved.Point(x, y));
             }
         }
-        return opened;
     }
 }
