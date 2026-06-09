@@ -4,9 +4,11 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
+import java.util.Set;
 
 public class BacktrackTryAndError {
 
@@ -17,10 +19,13 @@ public class BacktrackTryAndError {
     private int rows;
     private int cols;
     
-    private int totalNpcMask = 0; 
+    private int totalNpcCount = 0; 
     private int bestCost;
     
-    private Map<String, Integer> dpMemo;      
+    // Kamus Memori Keputusan (OOP Memoization)
+    private Map<String, Integer> decisionMemory;  
+    
+    // Untuk Merekam seluruh jejak eksplorasi (Maju & Mundur)
     private List<BacktrackInstantSolved.Point> searchHistory;
 
     public BacktrackTryAndError(String filePath) {
@@ -48,8 +53,7 @@ public class BacktrackTryAndError {
             gateMap = new int[rows][cols];
             npcMap = new int[rows][cols];
 
-            int currentBit = 0; 
-            Map<Integer, Integer> plateBits = new HashMap<>();
+            int npcIdCounter = 1000; 
 
             for (int r = 0; r < rows; r++) {
                 String[] tokens = rowList.get(r);
@@ -64,24 +68,18 @@ public class BacktrackTryAndError {
                         costMap[r][c] = 5;
                     } else {
                         costMap[r][c] = 1;
+                        
                         if (t.equals("N")) {
-                            int bit = (1 << currentBit++);
-                            npcMap[r][c] = bit;
-                            totalNpcMask |= bit;
+                            npcMap[r][c] = npcIdCounter++;
+                            totalNpcCount++;
                         }
                         else if (t.startsWith("P") && t.length() > 1) {
-                            try {
-                                int id = Integer.parseInt(t.substring(1));
-                                if (!plateBits.containsKey(id)) plateBits.put(id, 1 << currentBit++);
-                                plateMap[r][c] = plateBits.get(id);
-                            } catch (NumberFormatException e) {}
+                            try { plateMap[r][c] = Integer.parseInt(t.substring(1)); } 
+                            catch (NumberFormatException e) {}
                         } 
                         else if (t.startsWith("D") && t.length() > 1) {
-                            try {
-                                int id = Integer.parseInt(t.substring(1));
-                                if (!plateBits.containsKey(id)) plateBits.put(id, 1 << currentBit++);
-                                gateMap[r][c] = plateBits.get(id);
-                            } catch (NumberFormatException e) {}
+                            try { gateMap[r][c] = Integer.parseInt(t.substring(1)); } 
+                            catch (NumberFormatException e) {}
                         }
                     }
                 }
@@ -89,36 +87,50 @@ public class BacktrackTryAndError {
         }
     }
 
+    // Perhatikan tipe datanya mereturn Point milik BacktrackInstantSolved 
+    // agar kompatibel dengan Player.java Anda
     public List<BacktrackInstantSolved.Point> solve(int startX, int startY, int endX, int endY) {
         if (costMap == null) return new ArrayList<>();
 
         bestCost = Integer.MAX_VALUE;
-        dpMemo = new HashMap<>(); 
+        decisionMemory = new HashMap<>(); 
         searchHistory = new ArrayList<>(); 
 
-        int startState = plateMap[startX][startY] | npcMap[startX][startY];
+        Set<Integer> initialInventory = new HashSet<>();
+        if (plateMap[startX][startY] != 0) initialInventory.add(plateMap[startX][startY]);
+        if (npcMap[startX][startY] != 0) initialInventory.add(npcMap[startX][startY]);
         
+        // Catat langkah pertama
         searchHistory.add(new BacktrackInstantSolved.Point(startX, startY));
-        backtrack(startX, startY, endX, endY, 0, startState);
 
-        return searchHistory; 
+        backtrack(startX, startY, endX, endY, 0, initialInventory);
+
+        return searchHistory; // Yang di-return adalah sejarah perjalanan, bukan rute tercepat!
     }
 
-    private void backtrack(int x, int y, int endX, int endY, int currentCost, int stateMask) {
-        if (currentCost >= bestCost) {
+    private void backtrack(int x, int y, int endX, int endY, int currentCost, Set<Integer> inventory) {
+        // --- 1. BOUNDING ---
+        if (currentCost >= bestCost) { // Jika cost saat ini sudah lebih buruk dari bestCost, tidak perlu lanjut di cabang ini
             return;
         }
         
-        String stateKey = x + "," + y + "," + stateMask;
-        // Pengecekan aman di awal
-        if (dpMemo.containsKey(stateKey) && currentCost > dpMemo.get(stateKey)) {
+        // --- 2. MEMORI KEPUTUSAN (Anti Loop) ---
+        String memoryKey = x + "," + y + "," + inventory.toString();
+        
+        if (decisionMemory.containsKey(memoryKey) && currentCost > decisionMemory.get(memoryKey)) { // Jika sudah pernah ke titik ini dengan inventory yang sama atau lebih baik, jangan ulangi!
             return; 
         }
-        dpMemo.put(stateKey, currentCost);
+        decisionMemory.put(memoryKey, currentCost);
 
+        // --- 3. CEK KEMENANGAN ---
         if (x == endX && y == endY) {
-            if ((stateMask & totalNpcMask) == totalNpcMask) {
-                bestCost = currentCost;
+            int collectedNpcs = 0;
+            for (int item : inventory) {
+                if (item >= 1000) collectedNpcs++; 
+            }
+
+            if (collectedNpcs == totalNpcCount) {
+                bestCost = currentCost; // Rekor diperbarui, algoritma akan mencari jalan yang lebih cepat lagi
             }
             return;
         }
@@ -126,38 +138,42 @@ public class BacktrackTryAndError {
         int[] dx = {0, 0, 1, -1};
         int[] dy = {1, -1, 0, 0};
 
+        // --- 4. EKSPLORASI POHON KEPUTUSAN ---
         for (int i = 0; i < 4; i++) {
             int nx = x + dx[i];
             int ny = y + dy[i];
 
             if (nx >= 0 && nx < rows && ny >= 0 && ny < cols && costMap[nx][ny] != -1) {
                 
+                // Cek Gerbang & Kunci
                 int requiredGate = gateMap[nx][ny];
-                if (requiredGate != 0 && (stateMask & requiredGate) == 0) {
+                if (requiredGate != 0 && !inventory.contains(requiredGate)) {
                     continue; 
                 }
 
-                int nextStateMask = stateMask | plateMap[nx][ny] | npcMap[nx][ny];
+                // Persiapan konsekuensi langkah
                 int nextCost = currentCost + costMap[nx][ny];
-
-                // --- FITUR LOOK AHEAD (PENCEGAH PING-PONG / STUTTER) ---
-                if (nextCost >= bestCost) {
-                    continue; // Rute ini sudah pasti kalah, jangan divisualisasikan
-                }
                 
-                String nextStateKey = nx + "," + ny + "," + nextStateMask;
-                if (dpMemo.containsKey(nextStateKey) && nextCost >= dpMemo.get(nextStateKey)) {
-                    continue; // Kotak ini sudah pernah dikunjungi dengan rute lebih baik, atau ini kotak asal kita. LEWATI!
-                }
-                // -------------------------------------------------------
+                // Fotokopi tas bawaan
+                Set<Integer> nextInventory = new HashSet<>(inventory);
+                if (plateMap[nx][ny] != 0) nextInventory.add(plateMap[nx][ny]);
+                if (npcMap[nx][ny] != 0) nextInventory.add(npcMap[nx][ny]);
 
-                // DO: Catat langkah masuk
+                // --- FITUR LOOK AHEAD (PENCEGAH STUTTER/PING-PONG) ---
+                if (nextCost >= bestCost) continue; 
+                
+                String nextMemoryKey = nx + "," + ny + "," + nextInventory.toString();
+                if (decisionMemory.containsKey(nextMemoryKey) && nextCost >= decisionMemory.get(nextMemoryKey)) {
+                    continue; // Jika kotak di depan sudah pernah diinjak dengan cost lebih murah, jangan divisualisasikan!
+                }
+
+                // DO: Catat langkah masuk ke ruangan baru
                 searchHistory.add(new BacktrackInstantSolved.Point(nx, ny));
 
-                // RECURSE: Cek lebih dalam
-                backtrack(nx, ny, endX, endY, nextCost, nextStateMask);
+                // RECURSE: Eksplorasi cabang ini
+                backtrack(nx, ny, endX, endY, nextCost, nextInventory);
 
-                // UNDO: Catat langkah keluar (Mundur dari jalan buntu)
+                // UNDO: Saat cabang ini selesai/buntu, catat langkah MUNDUR ke titik (x,y) saat ini
                 searchHistory.add(new BacktrackInstantSolved.Point(x, y));
             }
         }
