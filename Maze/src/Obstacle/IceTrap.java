@@ -14,6 +14,10 @@ public class IceTrap extends Obstacle{
     private int animationCounter = 0;
     private final int animationDelay = 100;
     public boolean active = true;
+    
+    // Stun cooldown variables
+    private int stunCooldown = 0;  // Current cooldown timer
+    private final int stunCooldownMax = 3600;  // 1 menit = 3600 frames (60 FPS)
 
     public IceTrap(int x, int y, int width, int height) {
         super(x, y, width, height);
@@ -56,6 +60,23 @@ public class IceTrap extends Obstacle{
             }
             active = true;
         }
+        
+        // Update stun cooldown
+        if (stunCooldown > 0) {
+            stunCooldown--;
+        }
+    }
+
+    public boolean canStun() {
+        return stunCooldown <= 0;
+    }
+    
+    public void setStunCooldown() {
+        stunCooldown = stunCooldownMax;
+    }
+    
+    public int getStunCooldownRemaining() {
+        return stunCooldown;
     }
 
     public BufferedImage getCurrentFrame() {

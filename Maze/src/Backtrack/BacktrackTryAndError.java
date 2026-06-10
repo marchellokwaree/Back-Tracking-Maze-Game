@@ -3,10 +3,8 @@ package Backtrack;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Scanner;
 import java.util.Set;
 
@@ -20,12 +18,12 @@ public class BacktrackTryAndError {
     private int cols;
     
     private int totalNpcCount = 0; 
+    
+    // --- VARIABEL BACKTRACKING MURNI ---
     private int bestCost;
+    private boolean[][] activePath; // Pengganti SSS, murni untuk Simple Path Tracker
     
-    // Kamus Memori Keputusan (OOP Memoization)
-    private Map<String, Integer> decisionMemory;  
-    
-    // Untuk Merekam seluruh jejak eksplorasi (Maju & Mundur)
+    // BUKU SEJARAH: Merekam jejak visual
     private List<BacktrackInstantSolved.Point> searchHistory;
 
     public BacktrackTryAndError(String filePath) {
@@ -87,42 +85,33 @@ public class BacktrackTryAndError {
         }
     }
 
-    // Perhatikan tipe datanya mereturn Point milik BacktrackInstantSolved 
-    // agar kompatibel dengan Player.java Anda
     public List<BacktrackInstantSolved.Point> solve(int startX, int startY, int endX, int endY) {
         if (costMap == null) return new ArrayList<>();
 
         bestCost = Integer.MAX_VALUE;
-        decisionMemory = new HashMap<>(); 
+        activePath = new boolean[rows][cols];
         searchHistory = new ArrayList<>(); 
 
         Set<Integer> initialInventory = new HashSet<>();
         if (plateMap[startX][startY] != 0) initialInventory.add(plateMap[startX][startY]);
         if (npcMap[startX][startY] != 0) initialInventory.add(npcMap[startX][startY]);
         
-        // Catat langkah pertama
+        // Setup titik awal
         searchHistory.add(new BacktrackInstantSolved.Point(startX, startY));
+        activePath[startX][startY] = true;
 
         backtrack(startX, startY, endX, endY, 0, initialInventory);
 
-        return searchHistory; // Yang di-return adalah sejarah perjalanan, bukan rute tercepat!
+        return searchHistory; 
     }
 
     private void backtrack(int x, int y, int endX, int endY, int currentCost, Set<Integer> inventory) {
-        // --- 1. BOUNDING ---
-        if (currentCost >= bestCost) { // Jika cost saat ini sudah lebih buruk dari bestCost, tidak perlu lanjut di cabang ini
-            return;
+        // --- 1. BRANCH AND BOUND MURNI (Tanpa DP Array) ---
+        if (currentCost >= bestCost) {
+            return; // Rute sudah kalah efisien, potong cabangnya!
         }
-        
-        // --- 2. MEMORI KEPUTUSAN (Anti Loop) ---
-        String memoryKey = x + "," + y + "," + inventory.toString();
-        
-        if (decisionMemory.containsKey(memoryKey) && currentCost > decisionMemory.get(memoryKey)) { // Jika sudah pernah ke titik ini dengan inventory yang sama atau lebih baik, jangan ulangi!
-            return; 
-        }
-        decisionMemory.put(memoryKey, currentCost);
 
-        // --- 3. CEK KEMENANGAN ---
+        // --- 2. CEK KEMENANGAN ---
         if (x == endX && y == endY) {
             int collectedNpcs = 0;
             for (int item : inventory) {
@@ -130,7 +119,7 @@ public class BacktrackTryAndError {
             }
 
             if (collectedNpcs == totalNpcCount) {
-                bestCost = currentCost; // Rekor diperbarui, algoritma akan mencari jalan yang lebih cepat lagi
+                bestCost = currentCost; // Update rekor tertinggi
             }
             return;
         }
@@ -138,43 +127,47 @@ public class BacktrackTryAndError {
         int[] dx = {0, 0, 1, -1};
         int[] dy = {1, -1, 0, 0};
 
-        // --- 4. EKSPLORASI POHON KEPUTUSAN ---
+        // --- 3. POHON KEPUTUSAN BACKTRACKING ---
         for (int i = 0; i < 4; i++) {
             int nx = x + dx[i];
             int ny = y + dy[i];
 
             if (nx >= 0 && nx < rows && ny >= 0 && ny < cols && costMap[nx][ny] != -1) {
                 
-                // Cek Gerbang & Kunci
+                // CONSTRAINT 1: Simple Path Rule (Tidak boleh injak jejak sendiri)
+                if (activePath[nx][ny]) {
+                    continue; 
+                }
+
+                // CONSTRAINT 2: Validasi Kunci Gerbang
                 int requiredGate = gateMap[nx][ny];
                 if (requiredGate != 0 && !inventory.contains(requiredGate)) {
                     continue; 
                 }
 
-                // Persiapan konsekuensi langkah
+                // Persiapan konsekuensi
                 int nextCost = currentCost + costMap[nx][ny];
-                
-                // Fotokopi tas bawaan
                 Set<Integer> nextInventory = new HashSet<>(inventory);
                 if (plateMap[nx][ny] != 0) nextInventory.add(plateMap[nx][ny]);
                 if (npcMap[nx][ny] != 0) nextInventory.add(npcMap[nx][ny]);
 
-                // --- FITUR LOOK AHEAD (PENCEGAH STUTTER/PING-PONG) ---
-                if (nextCost >= bestCost) continue; 
-                
-                String nextMemoryKey = nx + "," + ny + "," + nextInventory.toString();
-                if (decisionMemory.containsKey(nextMemoryKey) && nextCost >= decisionMemory.get(nextMemoryKey)) {
-                    continue; // Jika kotak di depan sudah pernah diinjak dengan cost lebih murah, jangan divisualisasikan!
-                }
+                // Fitur Look-Ahead Sederhana (Mencegah pencatatan bodoh untuk Branch and Bound)
+                if (nextCost >= bestCost) continue;
 
-                // DO: Catat langkah masuk ke ruangan baru
+                // ==========================================
+                // ANIMASI & LOGIKA: DO - RECURSE - UNDO
+                // ==========================================
+
+                // DO
+                activePath[nx][ny] = true;
                 searchHistory.add(new BacktrackInstantSolved.Point(nx, ny));
 
-                // RECURSE: Eksplorasi cabang ini
+                // RECURSE
                 backtrack(nx, ny, endX, endY, nextCost, nextInventory);
 
-                // UNDO: Saat cabang ini selesai/buntu, catat langkah MUNDUR ke titik (x,y) saat ini
+                // UNDO (Mundur dan hapus jejak agar bisa dilewati rute lain)
                 searchHistory.add(new BacktrackInstantSolved.Point(x, y));
+                activePath[nx][ny] = false;
             }
         }
     }

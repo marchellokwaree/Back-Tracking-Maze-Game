@@ -3,10 +3,8 @@ package Backtrack;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Scanner;
 import java.util.Set;
 
@@ -24,8 +22,8 @@ public class BacktrackInstantSolved {
     private int bestCost;
     private List<Point> bestPath;
     
-    // PENGGANTI ARRAY 3D & VISITED DFS: Kamus Memori Keputusan (Memoization OOP)
-    private Map<String, Integer> decisionMemory;      
+    // PENGGANTI MEMORI: Array visited sederhana khusus untuk jalur yang sedang dilewati saat ini
+    private boolean[][] visited;
 
     public static class Point {
         public int x, y;
@@ -51,15 +49,15 @@ public class BacktrackInstantSolved {
             return;
         }
 
-        rows = rowList.size(); // ngambil jumlah baris.
+        rows = rowList.size();
         if (rows > 0) {
-            cols = rowList.get(0).length; // ngambil jumlah kolom.
-            costMap = new int[rows][cols]; // Inisialisasi peta biaya
-            plateMap = new int[rows][cols]; // Inisialisasi peta pelat, default 0 (tidak ada pelat)
-            gateMap = new int[rows][cols]; // Inisialisasi peta gerbang, default 0 (tidak ada gerbang)
-            npcMap = new int[rows][cols]; // Inisialisasi peta NPC, default 0 (tidak ada NPC)
+            cols = rowList.get(0).length;
+            costMap = new int[rows][cols];
+            plateMap = new int[rows][cols];
+            gateMap = new int[rows][cols];
+            npcMap = new int[rows][cols];
 
-            int npcIdCounter = 1000; // ID NPC mulai dari 1000 agar beda dari ID gerbang
+            int npcIdCounter = 1000;
 
             for (int r = 0; r < rows; r++) {
                 String[] tokens = rowList.get(r); 
@@ -76,16 +74,16 @@ public class BacktrackInstantSolved {
                         costMap[r][c] = 1;  // Jalan biasa
                         
                         if (t.equals("N")) {
-                            npcMap[r][c] = npcIdCounter++; // ngambil ID NPC secara otomatis, dimulai dari 1000
+                            npcMap[r][c] = npcIdCounter++;
                             totalNpcCount++;
                         }
                         else if (t.startsWith("P") && t.length() > 1) {
-                            try { plateMap[r][c] = Integer.parseInt(t.substring(1)); }  // ngambil ID Pelat dimasukkan ke dalam plateMap
+                            try { plateMap[r][c] = Integer.parseInt(t.substring(1)); } 
                             catch (NumberFormatException e) {}
                         } 
                         else if (t.startsWith("D") && t.length() > 1) {
-                            try { gateMap[r][c] = Integer.parseInt(t.substring(1)); } //ngambil ID Gerbang dimasukkan ke dalam gateMap
-                            catch (NumberFormatException e) {} // Gerbang dengan ID tertentu
+                            try { gateMap[r][c] = Integer.parseInt(t.substring(1)); } 
+                            catch (NumberFormatException e) {}
                         }
                     }
                 }
@@ -94,18 +92,21 @@ public class BacktrackInstantSolved {
     }
 
     public List<Point> solve(int startX, int startY, int endX, int endY) {
-        if (costMap == null) return new ArrayList<>(); // Maze tidak berhasil dimuat, kembalikan jalur kosong
+        if (costMap == null) return new ArrayList<>();
 
-        bestCost = Integer.MAX_VALUE; // Inisialisasi cost terbaik dengan nilai maksimum
-        bestPath = new ArrayList<>(); // Inisialisasi jalur terbaik sebagai kosong
-        decisionMemory = new HashMap<>(); // Reset memori di setiap pencarian
+        bestCost = Integer.MAX_VALUE;
+        bestPath = new ArrayList<>();
+        visited = new boolean[rows][cols]; // Inisialisasi visited array
 
-        Set<Integer> initialInventory = new HashSet<>(); // Tas awal kosong, tapi bisa langsung dapat item di posisi start
-        if (plateMap[startX][startY] != 0) initialInventory.add(plateMap[startX][startY]); // Ambil item pelat jika ada di posisi start
-        if (npcMap[startX][startY] != 0) initialInventory.add(npcMap[startX][startY]); // Ambil NPC jika ada di posisi start
+        Set<Integer> initialInventory = new HashSet<>();
+        if (plateMap[startX][startY] != 0) initialInventory.add(plateMap[startX][startY]);
+        if (npcMap[startX][startY] != 0) initialInventory.add(npcMap[startX][startY]);
 
-        List<Point> currentPath = new ArrayList<>(); // Jalur saat ini, akan berubah-ubah selama backtracking
-        currentPath.add(new Point(startX, startY)); // Mulai dari titik awal
+        List<Point> currentPath = new ArrayList<>();
+        currentPath.add(new Point(startX, startY));
+        
+        // Tandai titik awal sebagai sudah dikunjungi
+        visited[startX][startY] = true;
 
         backtrack(startX, startY, endX, endY, 0, currentPath, initialInventory);
 
@@ -119,23 +120,13 @@ public class BacktrackInstantSolved {
     }
 
     private void backtrack(int x, int y, int endX, int endY, int currentCost, List<Point> currentPath, Set<Integer> inventory) {
-        // --- 1. BOUNDING (Mencegah eksplorasi rute yang sudah pasti kalah mahal) ---
+        // --- 1. BOUNDING (Pruning) ---
+        // Jika cost saat ini sudah lebih mahal atau sama dengan cost terbaik yang pernah ditemukan, hentikan pencarian di cabang ini
         if (currentCost >= bestCost) {
             return;
         }
-        
-        // --- 2. KAMUS MEMORI KEPUTUSAN (Pengganti SSS Array 3D dan Pengganti 'Visited' DFS) ---
-        // Kita jadikan koordinat dan isi tas sebagai kunci riwayat unik
-        String memoryKey = x + "," + y + "," + inventory.toString();
-        
-        // Jika karakter pernah ke sini membawa isi tas yang persis sama, dengan cost lebih murah... Hentikan!
-        if (decisionMemory.containsKey(memoryKey) && currentCost >= decisionMemory.get(memoryKey)) {
-            return; 
-        }
-        // Simpan rekor baru
-        decisionMemory.put(memoryKey, currentCost);
 
-        // --- 3. CEK KEMENANGAN ---
+        // --- 2. CEK KEMENANGAN ---
         if (x == endX && y == endY) {
             int collectedNpcs = 0;
             for (int item : inventory) {
@@ -152,35 +143,37 @@ public class BacktrackInstantSolved {
         int[] dx = {0, 0, 1, -1};
         int[] dy = {1, -1, 0, 0};
 
-        // --- 4. EKSPLORASI POHON KEPUTUSAN ---
+        // --- 3. EKSPLORASI POHON KEPUTUSAN ---
         for (int i = 0; i < 4; i++) {
             int nx = x + dx[i];
             int ny = y + dy[i];
 
-            if (nx >= 0 && nx < rows && ny >= 0 && ny < cols && costMap[nx][ny] != -1) {
+            // Cek batas map, tembok (-1), dan memastikan kotak belum dikunjungi di rute saat ini
+            if (nx >= 0 && nx < rows && ny >= 0 && ny < cols && costMap[nx][ny] != -1 && !visited[nx][ny]) {
                 
                 // CONSTRAINT: Cek Gerbang & Kunci
                 int requiredGate = gateMap[nx][ny];
                 if (requiredGate != 0 && !inventory.contains(requiredGate)) {
-                    continue; // Tidak punya kunci di tas, jalan ditolak!
+                    continue; // Tidak punya kunci di tas, lewati arah ini
                 }
 
-                // PERSIAPAN KONSEKUENSI
+                // PERSIAPAN STATE BARU
                 int nextCost = currentCost + costMap[nx][ny];
                 
-                // Duplikasi tas agar tidak rusak saat membatalkan pilihan (UNDO)
                 Set<Integer> nextInventory = new HashSet<>(inventory);
                 if (plateMap[nx][ny] != 0) nextInventory.add(plateMap[nx][ny]);
                 if (npcMap[nx][ny] != 0) nextInventory.add(npcMap[nx][ny]);
 
-                // DO: Lakukan Keputusan
+                // --- DO: Lakukan Keputusan ---
+                visited[nx][ny] = true; // Tandai sedang dilewati
                 currentPath.add(new Point(nx, ny));
 
-                // RECURSE: Eksplorasi Keputusan
+                // --- RECURSE: Eksplorasi Keputusan Selanjutnya ---
                 backtrack(nx, ny, endX, endY, nextCost, currentPath, nextInventory);
 
-                // UNDO: Batalkan Keputusan (Kembali ke persimpangan)
+                // --- UNDO: Batalkan Keputusan (Backtrack murni) ---
                 currentPath.remove(currentPath.size() - 1);
+                visited[nx][ny] = false; // Hapus tanda agar bisa dilewati oleh cabang rute lain
             }
         }
     }

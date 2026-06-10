@@ -742,7 +742,7 @@ public class GamePanel extends JPanel implements Runnable {
                 if (fireTrap.active && fireHitbox.intersects(player.getHitbox())
                         && player.damageCooldown == 0) {
 
-                    player.darah.takeDamage(30);
+                    player.darah.takeDamage(0);
 
                     if (player.darah.getCurrentHP() < 0) {
                         player.darah.update(0);
@@ -779,8 +779,9 @@ public class GamePanel extends JPanel implements Runnable {
             if (obstacle instanceof IceTrap) {
                 IceTrap iceTrap = (IceTrap) obstacle;
                 Rectangle iceHitbox = new Rectangle(iceTrap.x, iceTrap.y, tileSize, tileSize);
-                if (iceTrap.active && iceHitbox.intersects(player.getHitbox())) {
-                    player.applySlow(5);
+                if (iceTrap.active && iceTrap.canStun() && iceHitbox.intersects(player.getHitbox())) {
+                    player.applyStun(120); // 2 detik stun = 120 frames (60 FPS)
+                    iceTrap.setStunCooldown(); // Set cooldown 1 menit
                 }
             }
             if (obstacle instanceof HealPotion) {

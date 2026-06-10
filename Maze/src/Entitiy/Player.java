@@ -33,6 +33,8 @@ public class Player extends Entity {
     public int normalSpeed = 2;
     public int slowSpeed = 1;
     public int slowEffectCounter = 0; // Counter untuk efek slow
+    public int stunEffectCounter = 0; // Counter untuk efek stun (immobilize)
+    public int stunSpeed = 0; // Kecepatan saat stun (0 = diam total)
     public int screenX;
     public int screenY;
     public final int defaultScreenX;
@@ -249,8 +251,18 @@ public class Player extends Entity {
     }
 
     public void updateEffects() {
-        if (slowEffectCounter > 0) {
+        // Handle stun effect (takes priority over slow)
+        if (stunEffectCounter > 0) {
+            stunEffectCounter--;
+            speed = stunSpeed;
+            if (stunEffectCounter == 0) {
+                speed = normalSpeed;
+            }
+        }
+        // Handle slow effect (only if not stunned)
+        else if (slowEffectCounter > 0) {
             slowEffectCounter--;
+            speed = slowSpeed;
             if (slowEffectCounter == 0) {
                 speed = normalSpeed;
             }
@@ -263,6 +275,11 @@ public class Player extends Entity {
     public void applySlow(int durationFrames) {
         slowEffectCounter = durationFrames;
         speed = slowSpeed;
+    }
+
+    public void applyStun(int durationFrames) {
+        stunEffectCounter = durationFrames;
+        speed = stunSpeed;
     }
 
     
